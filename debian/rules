@@ -1,0 +1,99 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+# export DH_VERBOSE=1
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+build: build-indep build-arch
+
+build-indep: build-indep-stamp
+build-indep-stamp:
+
+	dh_testdir
+
+	mkdir -p -- debian/build-tmp
+
+	rsync -rl --delete \
+		--exclude /debian \
+		-- . debian/build-tmp/rbenv
+
+	cp -- debian/build/rbenv debian/build-tmp/rbenv/rbenv
+
+	(cat -- debian/build/rbenv-header.pandoc && cat -- README.md) \
+		| pandoc -s -r markdown -w man > debian/build/rbenv.1
+
+	touch -- $@
+
+build-arch: build-arch-stamp
+build-arch-stamp:
+
+	dh_testdir
+
+	touch -- $@
+
+install: install-indep install-arch
+
+install-indep:
+
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+
+	ln -sfn -- build-tmp debian/tmp
+
+	dh_install
+
+install-arch:
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+	dh_install
+
+# binary: binary-indep binary-arch
+binary: binary-indep
+
+binary-indep: DH_OPTIONS=-i
+binary-indep: build-indep install-indep
+	$(MAKE) -f debian/rules -- binary-common
+
+# binary-arch: DH_OPTIONS=-a
+# binary-arch: build-arch install-arch
+#	$(MAKE) -f debian/rules -- binary-common
+
+binary-common:
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs
+	dh_installdocs
+	dh_installexamples
+	dh_installmenu
+	dh_installman
+	dh_lintian
+	dh_strip
+	dh_link
+	dh_compress
+	dh_fixperms
+	dh_makeshlibs
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+clean:
+
+	dh_testdir
+	dh_testroot
+
+	rm -f -- build-indep-stamp build-arch-stamp
+	rm -f -- debian/build/rbenv.1
+	rm -rf -- debian/build-tmp
+
+	dh_clean
+
+.PHONY: build build-indep build-arch install install-indep install-arch binary binary-indep binary-arch binary-common \
+	clean

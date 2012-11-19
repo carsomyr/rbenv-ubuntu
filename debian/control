@@ -1,0 +1,18 @@
+Source: rbenv
+Section: ruby
+Priority: optional
+Maintainer: Roy Liu <carsomyr@gmail.com>
+Build-Depends: debhelper, pandoc, rsync
+Standards-Version: 3.9.3
+Homepage: https://github.com/sstephenson/rbenv
+
+Package: rbenv
+Architecture: all
+Depends: ${misc:Depends}
+Suggests: rbenv-ruby
+Description: simple Ruby version management
+ rbenv lets you easily switch between multiple versions of Ruby. It's simple,
+ unobtrusive, and follows the UNIX tradition of single-purpose tools that do one
+ thing well.
+ .
+ This is the core rbenv distribution; it doesn't come bundled with any Rubies.

@@ -1,0 +1,19 @@
+This package was Debianized by:
+
+    Roy Liu <carsomyr@gmail.com> on Mon, 19 Nov 2012 00:00:00 -0500
+
+Copyright:
+
+    Copyright (C) 2011-2012 Sam Stephenson
+
+License:
+
+    rbenv is distributed under the MIT License (see
+    `http://en.wikipedia.org/wiki/MIT_License').
+
+The Debian packaging is:
+
+    Copyright (C) 2012 Roy Liu <carsomyr@gmail.com>
+
+and is distributed under the Apache License, Version 2.0 (see
+`/usr/share/common-licenses/Apache-2.0').

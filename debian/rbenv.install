@@ -1,0 +1,4 @@
+rbenv/bin /usr/lib/rbenv
+rbenv/completions /usr/lib/rbenv
+rbenv/libexec /usr/lib/rbenv
+rbenv/rbenv /usr/bin

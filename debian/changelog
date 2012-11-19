@@ -1,0 +1,5 @@
+rbenv (0.3.0+15-0ubuntu1) precise; urgency=low
+
+  * Initial Debianization.
+
+ -- Roy Liu <carsomyr@gmail.com>  Mon, 19 Nov 2012 00:00:00 -0500

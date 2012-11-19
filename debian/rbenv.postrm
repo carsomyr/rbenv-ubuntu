@@ -1,0 +1,26 @@
+#!/bin/bash
+
+set -e
+
+case "$1" in
+
+    purge)
+        rm -rf -- /usr/lib/rbenv
+        ;;
+
+    remove)
+        rm -rf -- /usr/lib/rbenv/shims
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`${1}'." >&2
+        exit -- 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit -- 0
