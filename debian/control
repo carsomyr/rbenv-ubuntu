@@ -1,0 +1,21 @@
+Source: rbenv-jruby1.7
+Section: ruby
+Priority: optional
+Maintainer: Roy Liu <carsomyr@gmail.com>
+Build-Depends: ant, debhelper, default-jdk, m4, rsync
+Standards-Version: 3.9.3
+Homepage: http://www.jruby.org/
+
+Package: rbenv-jruby1.7
+Architecture: amd64 armhf i386
+Depends: default-jre-headless, rbenv, ${misc:Depends}, ${shlibs:Depends}
+Provides: rbenv-jruby
+Description: rbenv-based, prebuilt JRuby
+ JRuby is the effort to recreate the Ruby interpreter in Java.
+ .
+ The Java version is tightly integrated with Java to allow both to script any
+ Java class and to embed the interpreter into any Java application. See the
+ "docs" directory for more information.
+ .
+ This particular distribution is installed as part of the rbenv Ruby version
+ manager.

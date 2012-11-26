@@ -1,0 +1,19 @@
+This package was Debianized by:
+
+    Roy Liu <carsomyr@gmail.com> on Sun, 25 Nov 2012 00:00:00 -0500
+
+Copyright:
+
+    Copyright (C) 2007-2012 The JRuby project
+
+License:
+
+    JRuby is distributed under a CPL/GPL/LGPL triple license (see
+    `https://raw.github.com/jruby/jruby/master/COPYING').
+
+The Debian packaging is:
+
+    Copyright (C) 2012 Roy Liu <carsomyr@gmail.com>
+
+and is distributed under the Apache License, Version 2.0 (see
+`/usr/share/common-licenses/Apache-2.0').
