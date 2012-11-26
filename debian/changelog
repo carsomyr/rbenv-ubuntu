@@ -1,0 +1,5 @@
+rbenv-ruby1.9 (1.9.3-p327-0ubuntu1) precise; urgency=low
+
+  * Initial Debianization.
+
+ -- Roy Liu <carsomyr@gmail.com>  Mon, 26 Nov 2012 00:00:00 -0500

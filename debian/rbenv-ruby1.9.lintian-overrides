@@ -1,0 +1,6 @@
+embedded-javascript-library
+image-file-in-usr-lib
+package-contains-empty-directory
+ruby-script-but-no-ruby-dep
+script-not-executable
+wrong-path-for-interpreter
