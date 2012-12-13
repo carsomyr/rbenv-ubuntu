@@ -1,3 +1,9 @@
+rbenv (0.3.0+41-0ubuntu1) precise; urgency=low
+
+  * Update to 0.3.0+41.
+
+ -- Roy Liu <carsomyr@gmail.com>  Wed, 12 Dec 2012 00:00:00 -0500
+
 rbenv (0.3.0+15-0ubuntu1) precise; urgency=low
 
   * Initial Debianization.
