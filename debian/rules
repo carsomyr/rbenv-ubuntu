@@ -8,6 +8,8 @@ export DH_OPTIONS
 
 RBENV_VERSION=$(shell head -n 1 -- debian/changelog \
 	| sed -E -e "s/^rbenv-ruby[1-2]\\.[0-9] \\((.*)-.*\\) \\w+; urgency=low\$$/\\1/g")
+MAJOR_VERSION=$(shell echo "$(RBENV_VERSION)" \
+	| sed -E -e "s/^([1-2]\\.[0-9])\\..*\$$/\\1/g")
 PACKAGE_NAME=$(shell head -n 1 -- debian/changelog \
 	| sed -E -e "s/^(rbenv-ruby[1-2]\\.[0-9]) \\(.*\\) \\w+; urgency=low\$$/\\1/g")
 
@@ -33,12 +35,12 @@ build-arch-stamp:
 
 	cd -- debian/build-tmp/ruby \
 		&& autoconf \
-		&& ./configure --prefix /usr/lib/rbenv/versions/$(RBENV_VERSION) \
+		&& ./configure --prefix /usr/lib/rbenv/versions/$(MAJOR_VERSION) \
 		; cd -- ../../..
 
 	make -C debian/build-tmp/ruby -j 2
 
-	m4 -D RBENV_VERSION=$(RBENV_VERSION) -- debian/build/$(PACKAGE_NAME).postrm.m4 \
+	m4 -D MAJOR_VERSION=$(MAJOR_VERSION) -- debian/build/$(PACKAGE_NAME).postrm.m4 \
 		> debian/$(PACKAGE_NAME).postrm
 
 	touch -- $@
@@ -60,6 +62,8 @@ install-arch:
 	dh_installdirs
 
 	make -C debian/build-tmp/ruby -- DESTDIR=$(CURDIR)/debian/$(PACKAGE_NAME) install
+
+	ln -sfn -- $(MAJOR_VERSION) debian/$(PACKAGE_NAME)/usr/lib/rbenv/versions/$(RBENV_VERSION)
 
 	dh_install
 
