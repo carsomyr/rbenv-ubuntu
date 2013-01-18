@@ -5,7 +5,7 @@ set -e
 case "$1" in
 
     remove)
-        rm -rf -- /usr/lib/rbenv/versions/RBENV_VERSION
+        rm -rf -- /usr/lib/rbenv/versions/MAJOR_VERSION
         rbenv rehash
         ;;
 

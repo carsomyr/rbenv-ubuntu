@@ -8,6 +8,8 @@ export DH_OPTIONS
 
 RBENV_VERSION=$(shell head -n 1 -- debian/changelog \
 	| sed -E -e "s/^rbenv-jruby[1-2]\\.[0-9] \\((.*)-.*\\) \\w+; urgency=low\$$/jruby-\\1/g")
+MAJOR_VERSION=$(shell echo "$(RBENV_VERSION)" \
+	| sed -E -e "s/^jruby-([1-2]\\.[0-9])\\..*\$$/jruby-\\1/g")
 PACKAGE_NAME=$(shell head -n 1 -- debian/changelog \
 	| sed -E -e "s/^(rbenv-jruby[1-2]\\.[0-9]) \\(.*\\) \\w+; urgency=low\$$/\\1/g")
 
@@ -64,7 +66,7 @@ build-arch-stamp:
 		&& ./ruby -- gem uninstall -x rake jruby-launcher \
 		; cd -- ../../../..
 
-	m4 -D RBENV_VERSION=$(RBENV_VERSION) -- debian/build/$(PACKAGE_NAME).postrm.m4 \
+	m4 -D MAJOR_VERSION=$(MAJOR_VERSION) -- debian/build/$(PACKAGE_NAME).postrm.m4 \
 		> debian/$(PACKAGE_NAME).postrm
 
 	touch -- $@
@@ -85,7 +87,12 @@ install-arch:
 	dh_prep
 	dh_installdirs
 
-	ln -sfn -- build-tmp debian/tmp
+	mkdir -p -- debian/$(PACKAGE_NAME)/usr/lib/rbenv/versions/$(MAJOR_VERSION)
+
+	mv -- debian/build-tmp/jruby/bin debian/$(PACKAGE_NAME)/usr/lib/rbenv/versions/$(MAJOR_VERSION)
+	mv -- debian/build-tmp/jruby/lib debian/$(PACKAGE_NAME)/usr/lib/rbenv/versions/$(MAJOR_VERSION)
+
+	ln -sfn -- $(MAJOR_VERSION) debian/$(PACKAGE_NAME)/usr/lib/rbenv/versions/$(RBENV_VERSION)
 
 	dh_install
 

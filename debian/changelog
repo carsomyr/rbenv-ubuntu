@@ -1,5 +1,8 @@
-rbenv-jruby1.7 (1.7.2-0ubuntu1) precise; urgency=low
+rbenv-jruby1.7 (1.7.2-0ubuntu2) precise; urgency=low
 
+  * Change the packaging so that rbenv Rubies may be referenced by their major
+    versions. A symlink of the rbenv version to this major version directory is
+    maintained.
   * Update to 1.7.2.
 
  -- Roy Liu <carsomyr@gmail.com>  Fri, 18 Jan 2013 00:00:00 -0500
