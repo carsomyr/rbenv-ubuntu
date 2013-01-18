@@ -1,3 +1,9 @@
+rbenv-ruby1.9 (1.9.3-p374-0ubuntu1) precise; urgency=low
+
+  * Update to 1.9.3-p374.
+
+ -- Roy Liu <carsomyr@gmail.com>  Fri, 18 Jan 2013 00:00:00 -0500
+
 rbenv-ruby1.9 (1.9.3-p362-0ubuntu2) precise; urgency=low
 
   * Change the packaging so that rbenv Rubies may be referenced by their major
