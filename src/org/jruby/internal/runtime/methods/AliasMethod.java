@@ -109,6 +109,10 @@ public class AliasMethod extends DynamicMethod {
     public Arity getArity(){
         return oldMethod.getArity();
     }
+
+    public String getOldName() {
+        return oldName;
+    }
     
     @Override
     public DynamicMethod getRealMethod() {

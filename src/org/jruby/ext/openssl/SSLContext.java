@@ -68,6 +68,7 @@ import org.jruby.runtime.builtin.IRubyObject;
 /**
  * @author <a href="mailto:ola.bini@ki.se">Ola Bini</a>
  */
+@SuppressWarnings("deprecation")
 public class SSLContext extends RubyObject {
     private static final long serialVersionUID = -6203496135962974777L;
 
@@ -387,7 +388,16 @@ public class SSLContext extends RubyObject {
 
     // should keep SSLContext as a member for introducin SSLSession. later...
     SSLEngine createSSLEngine(String peerHost, int peerPort) throws NoSuchAlgorithmException, KeyManagementException {
-        SSLEngine engine = internalCtx.getSSLContext().createSSLEngine(peerHost, peerPort);
+        SSLEngine engine;
+        // an empty peerHost implies no SNI (RFC 3546) support requested
+        if (peerHost == null || peerHost.length() == 0) {
+            engine = internalCtx.getSSLContext().createSSLEngine();
+        }
+        // SNI is attempted for valid peerHost hostname on Java >= 7
+        // if peerHost is set to an IP address Java does not use SNI
+        else {
+            engine = internalCtx.getSSLContext().createSSLEngine(peerHost, peerPort);
+        }
         engine.setEnabledCipherSuites(getCipherSuites(engine));
         engine.setEnabledProtocols(getEnabledProtocols(engine));
         return engine;

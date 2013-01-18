@@ -718,42 +718,6 @@ public class ASTCompiler {
         String name = callNode.getName();
         CallType callType = CallType.NORMAL;
 
-        DYNOPT: if (RubyInstanceConfig.DYNOPT_COMPILE_ENABLED) {
-            // dynopt does not handle non-local block flow control yet, so we bail out
-            // if there's a closure.
-            if (callNode.getIterNode() != null) break DYNOPT;
-            if (callNode.callAdapter instanceof CachingCallSite) {
-                CachingCallSite cacheSite = (CachingCallSite)callNode.callAdapter;
-                if (cacheSite.isOptimizable()) {
-                    CacheEntry entry = cacheSite.getCache();
-                    if (entry.method.getNativeCall() != null) {
-                        NativeCall nativeCall = entry.method.getNativeCall();
-
-                        // only do direct calls for specific arity
-                        if (argsCallback == null || argsCallback.getArity() >= 0 && argsCallback.getArity() <= 3) {
-                            if (compileIntrinsic(context, callNode, cacheSite.methodName, entry.token, entry.method, receiverCallback, argsCallback, closureArg)) {
-                                // intrinsic compilation worked, hooray!
-                                return;
-                            } else {
-                                // otherwise, normal straight-through native call
-                                context.getInvocationCompiler().invokeNative(
-                                        name, nativeCall, entry.token, receiverCallback,
-                                        argsCallback, closureArg, CallType.NORMAL,
-                                        callNode.getIterNode() instanceof IterNode);
-                                return;
-                            }
-                        }
-                    }
-
-                    // check for a recursive call
-                    if (callNode.getReceiverNode() instanceof SelfNode) {
-                        // recursive calls
-                        if (compileRecursiveCall(callNode.getName(), entry.token, CallType.NORMAL, callNode.getIterNode() instanceof IterNode, entry.method, context, argsCallback, closureArg, expr)) return;
-                    }
-                }
-            }
-        }
-
         if (argsCallback != null && argsCallback.getArity() == 1) {
             Node argument = callNode.getArgsNode().childNodes().get(0);
             if (argument instanceof FixnumNode) {
@@ -833,110 +797,6 @@ public class ASTCompiler {
         floatDoubleIntrinsics.put(">=", "op_ge");
         floatDoubleIntrinsics.put("==", "op_equal");
         floatDoubleIntrinsics.put("<=>", "op_cmp");
-    }
-
-    private boolean compileRecursiveCall(String name, int generation, CallType callType, boolean iterator, DynamicMethod method, BodyCompiler context, ArgumentsCallback argsCallback, CompilerCallback closure, boolean expr) {
-        if (currentBodyNode != null && context.isSimpleRoot()) {
-            if (method instanceof InterpretedMethod) {
-                InterpretedMethod target = (InterpretedMethod)method;
-                if (target.getBodyNode() == currentBodyNode) {
-                    context.getInvocationCompiler().invokeRecursive(name, generation, argsCallback, closure, callType, iterator);
-                    if (!expr) context.consumeCurrentValue();
-                    return true;
-                }
-            }
-            if (method instanceof DefaultMethod) {
-                DefaultMethod target = (DefaultMethod)method;
-                if (target.getBodyNode() == currentBodyNode) {
-                    context.getInvocationCompiler().invokeRecursive(name, generation, argsCallback, closure, callType, iterator);
-                    if (!expr) context.consumeCurrentValue();
-                    return true;
-                }
-            }
-
-            if (method instanceof JittedMethod) {
-                DefaultMethod target = (DefaultMethod)((JittedMethod)method).getRealMethod();
-                if (target.getBodyNode() == currentBodyNode) {
-                    context.getInvocationCompiler().invokeRecursive(name, generation, argsCallback, closure, callType, iterator);
-                    if (!expr) context.consumeCurrentValue();
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean compileTrivialCall(String name, DynamicMethod method, int generation, BodyCompiler context, boolean expr) {
-        Node simpleBody = null;
-        if (method instanceof InterpretedMethod) {
-            InterpretedMethod target = (InterpretedMethod)method;
-            simpleBody = target.getBodyNode();
-            while (simpleBody instanceof NewlineNode) simpleBody = ((NewlineNode)simpleBody).getNextNode();
-        }
-
-        if (method instanceof DefaultMethod) {
-            DefaultMethod target = (DefaultMethod)method;
-            simpleBody = target.getBodyNode();
-            while (simpleBody instanceof NewlineNode) simpleBody = ((NewlineNode)simpleBody).getNextNode();
-        }
-
-        if (method instanceof JittedMethod) {
-            DefaultMethod target = (DefaultMethod)((JittedMethod)method).getRealMethod();
-            simpleBody = target.getBodyNode();
-            while (simpleBody instanceof NewlineNode) simpleBody = ((NewlineNode)simpleBody).getNextNode();
-        }
-
-        if (simpleBody != null) {
-            switch (simpleBody.getNodeType()) {
-            case SELFNODE:
-            case INSTVARNODE:
-            case NILNODE:
-            case FIXNUMNODE:
-            case FLOATNODE:
-            case STRNODE:
-            case BIGNUMNODE:
-            case FALSENODE:
-            case TRUENODE:
-            case SYMBOLNODE:
-            case XSTRNODE:
-                final Node simpleBodyFinal = simpleBody;
-                context.getInvocationCompiler().invokeTrivial(name, generation, new CompilerCallback() {
-                    public void call(BodyCompiler context) {
-                        compile(simpleBodyFinal, context, true);
-                    }
-                });
-                if (!expr) context.consumeCurrentValue();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean compileIntrinsic(BodyCompiler context, CallNode callNode, String name, int generation, DynamicMethod method, CompilerCallback receiverCallback, ArgumentsCallback argsCallback, CompilerCallback closureCallback) {
-        if (!(method.getImplementationClass() instanceof RubyClass)) return false;
-
-        RubyClass implClass = (RubyClass)method.getImplementationClass();
-        Map<Class, Map<String, String>> typeIntrinsics = Intrinsics.get(implClass.getReifiedClass());
-        if (typeIntrinsics != null) {
-            if (argsCallback != null && argsCallback.getArity() == 1) {
-                Node argument = callNode.getArgsNode().childNodes().get(0);
-                if (argument instanceof FixnumNode) {
-                    Map<String, String> typeLongIntrinsics = typeIntrinsics.get(FixnumNode.class);
-                    if (typeLongIntrinsics != null && typeLongIntrinsics.containsKey(name)) {
-                        context.getInvocationCompiler().invokeFixnumLong(name, generation, receiverCallback, typeLongIntrinsics.get(name), ((FixnumNode)argument).getValue());
-                        return true;
-                    }
-                }
-                if (argument instanceof FloatNode) {
-                    Map<String, String> typeDoubleIntrinsics = typeIntrinsics.get(FloatNode.class);
-                    if (typeDoubleIntrinsics != null && typeDoubleIntrinsics.containsKey(name)) {
-                        context.getInvocationCompiler().invokeFloatDouble(name, generation, receiverCallback, typeDoubleIntrinsics.get(name), ((FloatNode)argument).getValue());
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     private String getLiteralSend(CallNode callNode) {
@@ -1276,22 +1136,28 @@ public class ASTCompiler {
 
     public void compileConstDecl(Node node, BodyCompiler context, boolean expr) {
         // TODO: callback for value would be more efficient, but unlikely to be a big cost (constants are rarely assigned)
-        ConstDeclNode constDeclNode = (ConstDeclNode) node;
-        Node constNode = constDeclNode.getConstNode();
+        final ConstDeclNode constDeclNode = (ConstDeclNode) node;
+        final Node constNode = constDeclNode.getConstNode();
 
         if (constNode == null) {
-            compile(constDeclNode.getValueNode(), context,true);
-
-            context.assignConstantInCurrent(constDeclNode.getName());
+            context.assignConstantInCurrent(constDeclNode.getName(), new CompilerCallback() {
+                public void call(BodyCompiler context) {
+                    compile(constDeclNode.getValueNode(), context, true);
+                }
+            });
         } else if (constNode.getNodeType() == NodeType.COLON2NODE) {
-            compile(constDeclNode.getValueNode(), context,true);
-            compile(((Colon2Node) constNode).getLeftNode(), context,true);
-
-            context.assignConstantInModule(constDeclNode.getName());
+            context.assignConstantInModule(constDeclNode.getName(), new CompilerCallback() {
+                public void call(BodyCompiler context) {
+                    compile(constDeclNode.getValueNode(), context, true);
+                    compile(((Colon2Node) constNode).getLeftNode(), context, true);
+                }
+            });
         } else {// colon3, assign in Object
-            compile(constDeclNode.getValueNode(), context,true);
-
-            context.assignConstantInObject(constDeclNode.getName());
+            context.assignConstantInObject(constDeclNode.getName(), new CompilerCallback() {
+                public void call(BodyCompiler context) {
+                    compile(constDeclNode.getValueNode(), context, true);
+                }
+            });
         }
         // TODO: don't require pop
         if (!expr) context.consumeCurrentValue();
@@ -1303,12 +1169,12 @@ public class ASTCompiler {
         Node constNode = constDeclNode.getConstNode();
 
         if (constNode == null) {
-            context.assignConstantInCurrent(constDeclNode.getName());
+            context.mAssignConstantInCurrent(constDeclNode.getName());
         } else if (constNode.getNodeType() == NodeType.COLON2NODE) {
             compile(((Colon2Node) constNode).getLeftNode(), context,true);
-            context.assignConstantInModule(constDeclNode.getName());
+            context.mAssignConstantInModule(constDeclNode.getName());
         } else {// colon3, assign in Object
-            context.assignConstantInObject(constDeclNode.getName());
+            context.mAssignConstantInObject(constDeclNode.getName());
         }
         // TODO: don't require pop
         if (!expr) context.consumeCurrentValue();
@@ -2139,7 +2005,7 @@ public class ASTCompiler {
                         break;
                     case EVSTRNODE:
                         compile(((EvStrNode)nextNode).getBody(), context, true);
-                        context.shortcutAppend();
+                        context.shortcutAppend(dNode.is19());
                         break;
                     default:
                         compile(nextNode, context, true);
@@ -2254,27 +2120,6 @@ public class ASTCompiler {
         ArgumentsCallback argsCallback = getArgsCallback(fcallNode.getArgsNode());
         
         CompilerCallback closureArg = getBlock(fcallNode.getIterNode());
-
-        DYNOPT: if (RubyInstanceConfig.DYNOPT_COMPILE_ENABLED) {
-            // dynopt does not handle non-local block flow control yet, so we bail out
-            if (fcallNode.getIterNode() != null) break DYNOPT;
-            if (fcallNode.callAdapter instanceof CachingCallSite) {
-                CachingCallSite cacheSite = (CachingCallSite)fcallNode.callAdapter;
-                if (cacheSite.isOptimizable()) {
-                    CacheEntry entry = cacheSite.getCache();
-
-                    if (closureArg == null && (argsCallback == null || (argsCallback.getArity() >= 0 && argsCallback.getArity() <= 3))) {
-                        // recursive calls
-                        if (compileRecursiveCall(fcallNode.getName(), entry.token, CallType.FUNCTIONAL, fcallNode.getIterNode() instanceof IterNode, entry.method, context, argsCallback, closureArg, expr)) return;
-
-                        // peephole inlining for trivial targets
-                        if (closureArg == null &&
-                                argsCallback == null &&
-                                compileTrivialCall(fcallNode.getName(), entry.method, entry.token, context, expr)) return;
-                    }
-                }
-            }
-        }
 
         if (fcallNode instanceof SpecialArgs) {
             context.getInvocationCompiler().invokeDynamicVarargs(fcallNode.getName(), null, argsCallback, CallType.FUNCTIONAL, closureArg, fcallNode.getIterNode() instanceof IterNode);
@@ -2646,9 +2491,17 @@ public class ASTCompiler {
                 }
             };
             
-            // normal
-            compileCondition(actualCondition, context, true);
-            context.performBooleanBranch2(trueCallback, falseCallback);
+            if (actualCondition.getNodeType() == NodeType.GLOBALVARNODE) {
+                // use fast logic to cache raw boolean of global
+                context.performBooleanGlobalBranch(((GlobalVarNode)actualCondition).getName(), trueCallback, falseCallback);
+            } else if (actualCondition.getNodeType() == NodeType.CONSTNODE) {
+                // use fast logic to cache raw boolean of global
+                context.performBooleanConstantBranch(((ConstNode)actualCondition).getName(), trueCallback, falseCallback);
+            } else {
+                // normal
+                compileCondition(actualCondition, context, true);
+                context.performBooleanBranch2(trueCallback, falseCallback);
+            }
         }
     }
     
@@ -3768,20 +3621,6 @@ public class ASTCompiler {
 
     public void compileVCall(Node node, BodyCompiler context, boolean expr) {
         VCallNode vcallNode = (VCallNode) node;
-        if (RubyInstanceConfig.DYNOPT_COMPILE_ENABLED) {
-            if (vcallNode.callAdapter instanceof CachingCallSite) {
-                CachingCallSite cacheSite = (CachingCallSite)vcallNode.callAdapter;
-                if (cacheSite.isOptimizable()) {
-                    CacheEntry entry = cacheSite.getCache();
-
-                    // recursive calls
-                    if (compileRecursiveCall(vcallNode.getName(), entry.token, CallType.VARIABLE, false, entry.method, context, null, null, expr)) return;
-
-                    // peephole inlining for trivial targets
-                    if (compileTrivialCall(vcallNode.getName(), entry.method, entry.token, context, expr)) return;
-                }
-            }
-        }
 
         context.getInvocationCompiler().invokeDynamic(vcallNode.getName(), null, null, CallType.VARIABLE, null, false);
         // TODO: don't require pop

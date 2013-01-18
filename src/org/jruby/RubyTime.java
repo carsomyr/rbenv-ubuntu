@@ -64,7 +64,7 @@ import org.jruby.util.RubyDateFormat;
 import static org.jruby.CompatVersion.*;
 
 import static org.jruby.javasupport.util.RuntimeHelpers.invokedynamic;
-import static org.jruby.runtime.MethodIndex.OP_CMP;
+import static org.jruby.runtime.invokedynamic.MethodNames.OP_CMP;
 
 /** The Time class.
  * 
@@ -101,10 +101,21 @@ public class RubyTime extends RubyObject {
      * Since MRI accepts these values, we need to translate them.
      */
     private static final Map<String, String> LONG_TZNAME = new HashMap<String, String>() {{
-        put("MET", "CET"); // JRUBY-2579
+        put("MET", "CET"); // JRUBY-2759
         put("ROC", "Asia/Taipei"); // Republic of China
         put("WET", "Europe/Lisbon"); // Western European Time
         
+    }};
+    
+    /* github-215
+     * Some non-JVM timezone names are recognized by MRI.
+     * This map translate those to JVM-friendly names.
+     */
+    private static final Map<String, String> NON_JVM_TZNAME = new HashMap<String, String>() {{
+        put("EDT", "EST");
+        put("CDT", "CST");
+        put("MDT", "MST");
+        put("PDT", "PST");
     }};
     
     /* Some TZ values need to be overriden for Time#zone
@@ -149,7 +160,10 @@ public class RubyTime extends RubyObject {
         if (cachedZone != null) return cachedZone;
 
         String originalZone = zone;
-        TimeZone tz = TimeZone.getTimeZone(getEnvTimeZone(runtime).toString());
+        if (NON_JVM_TZNAME.containsKey(zone.toUpperCase())) {
+            zone = NON_JVM_TZNAME.get(zone.toUpperCase());
+        }
+        TimeZone tz = TimeZone.getTimeZone(zone);
 
         // Value of "TZ" property is of a bit different format,
         // which confuses the Java's TimeZone.getTimeZone(id) method,
@@ -541,15 +555,31 @@ public class RubyTime extends RubyObject {
         return (RubyNumeric.fix2int(invokedynamic(context, this, OP_CMP, other)) == 0) ? getRuntime().getTrue() : getRuntime().getFalse();
     }
 
-    @JRubyMethod(name = "<=>", required = 1)
+    @JRubyMethod(name = "<=>", required = 1, compat = CompatVersion.RUBY1_8)
     public IRubyObject op_cmp(ThreadContext context, IRubyObject other) {
         if (other instanceof RubyTime) {
             return context.runtime.newFixnum(cmp((RubyTime) other));
         }
-
         return context.runtime.getNil();
     }
-    
+
+    @JRubyMethod(name = "<=>", required = 1, compat = CompatVersion.RUBY1_9)
+    public IRubyObject op_cmp19(ThreadContext context, IRubyObject other) {
+        if (other instanceof RubyTime) {
+            return context.runtime.newFixnum(cmp((RubyTime) other));
+        }
+
+        IRubyObject tmp = invokedynamic(context, other, OP_CMP, this);
+        if (tmp.isNil()) {
+            return context.runtime.getNil();
+        } else {
+            int n = -RubyComparable.cmpint(context, tmp, this, other);
+            if (n == 0) return context.runtime.newFixnum(0);
+            if (n > 0) return context.runtime.newFixnum(1);
+            return context.runtime.newFixnum(-1);
+        }
+    }
+
     @JRubyMethod(name = "eql?", required = 1)
     @Override
     public IRubyObject eql_p(IRubyObject other) {
@@ -979,10 +1009,24 @@ public class RubyTime extends RubyObject {
         return createTime(recv, args, false);
     }
 
-    @JRubyMethod(name = "new", optional = 10, meta = true, compat = RUBY1_9)
+    @JRubyMethod(name = "new", optional = 7, meta = true, compat = RUBY1_9)
     public static IRubyObject new19(ThreadContext context, IRubyObject recv, IRubyObject[] args) {
         if (args.length == 0) {
             return newInstance(context, recv);
+        }
+        if (args.length == 7) {
+          Ruby runtime = recv.getRuntime();
+          // Convert the 7-argument form of Time.new into the 10-argument form of Time.local:
+          args = new IRubyObject[] { args[5],          // seconds
+                                     args[4],          // minutes
+                                     args[3],          // hours
+                                     args[2],          // day
+                                     args[1],          // month
+                                     args[0],          // year
+                                     runtime.getNil(), // weekday
+                                     runtime.getNil(), // day of year
+                                     runtime.getNil(), // is DST?
+                                     args[6] };        // UTC offset
         }
         return createTime(recv, args, false);
     }

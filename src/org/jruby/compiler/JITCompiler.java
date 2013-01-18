@@ -96,7 +96,7 @@ public class JITCompiler implements JITCompilerMBean {
                     0, // never stop
                     TimeUnit.SECONDS,
                     new LinkedBlockingQueue<Runnable>(),
-                    new DaemonThreadFactory("JRubyJIT"));
+                    new DaemonThreadFactory("JRubyJIT", Thread.MIN_PRIORITY));
     
     public JITCompiler(Ruby ruby) {
         ruby.getBeanManager().register(this);
@@ -177,6 +177,9 @@ public class JITCompiler implements JITCompilerMBean {
 
                     // finally, grab the script
                     Script jitCompiledScript = sourceClass.newInstance();
+
+                    // set root scope
+                    jitCompiledScript.setRootScope(method.getStaticScope());
 
                     // add to the jitted methods set
                     Set<Script> jittedMethods = runtime.getJittedMethods();

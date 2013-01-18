@@ -56,6 +56,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.jcodings.Encoding;
 
 import org.jruby.MetaClass;
 import org.jruby.Ruby;
@@ -101,6 +102,7 @@ import org.jruby.java.proxies.InterfaceJavaProxy;
 import org.jruby.java.proxies.JavaProxy;
 import org.jruby.java.proxies.RubyObjectHolderProxy;
 import org.jruby.javasupport.proxy.JavaProxyClassFactory;
+import org.jruby.runtime.Visibility;
 import org.jruby.util.ClassCache.OneShotClassLoader;
 import org.jruby.util.cli.Options;
 
@@ -132,7 +134,7 @@ public class Java implements Library {
                 "ENV_JAVA",
                 new MapJavaProxy(
                         runtime,
-                        (RubyClass)Java.getProxyClass(runtime, JavaClass.get(runtime, SystemPropertiesMap.class)),
+                        (RubyClass)Java.getProxyClass(runtime, SystemPropertiesMap.class),
                         systemProps));
     }
 
@@ -386,7 +388,7 @@ public class Java implements Library {
      */
     public static IRubyObject getInstance(Ruby runtime, Object rawJavaObject, boolean forceCache) {
         if (rawJavaObject != null) {
-            RubyClass proxyClass = (RubyClass) getProxyClass(runtime, JavaClass.get(runtime, rawJavaObject.getClass()));
+            RubyClass proxyClass = (RubyClass) getProxyClass(runtime, rawJavaObject.getClass());
 
             if (OBJECT_PROXY_CACHE || forceCache || proxyClass.getCacheProxy()) {
                 return runtime.getJavaSupport().getObjectProxyCache().getOrCreate(rawJavaObject, proxyClass);
@@ -439,27 +441,47 @@ public class Java implements Library {
     }
 
     public static RubyClass getProxyClassForObject(Ruby runtime, Object object) {
-        return (RubyClass)getProxyClass(runtime, JavaClass.get(runtime, object.getClass()));
+        return (RubyClass)getProxyClass(runtime, object.getClass());
     }
 
     public static RubyModule getProxyClass(Ruby runtime, JavaClass javaClass) {
-        RubyClass proxyClass;
-        final Class<?> c = javaClass.javaClass();
-        if ((proxyClass = javaClass.getProxyClass()) != null) {
-            return proxyClass;
-        }
+        return getProxyClass(runtime, javaClass.javaClass());
+    }
+
+    public static RubyModule getProxyClass(Ruby runtime, Class c) {
+        return runtime.getJavaSupport().getProxyClassFromCache(c);
+    }
+    
+    public static RubyModule createProxyClassForClass(Ruby runtime, final Class c) {
+        RubyModule proxyClass;
+        JavaClass javaClass = runtime.getJavaSupport().getJavaClassFromCache(c);
+        
         if (c.isInterface()) {
-            return getInterfaceModule(runtime, javaClass);
+            return Java.getInterfaceModule(runtime, javaClass);
         }
+        
         javaClass.lockProxy();
         try {
             if ((proxyClass = javaClass.getProxyClass()) == null) {
 
                 if (c.isArray()) {
-                    proxyClass = createProxyClass(runtime,
+                    proxyClass = Java.createProxyClass(runtime,
                             runtime.getJavaSupport().getArrayProxyClass(),
                             javaClass, true);
 
+                    // FIXME: Organizationally this might be nicer in a specialized class
+                    if (c.getComponentType() == byte.class) {
+                        final Encoding ascii8bit = runtime.getEncodingService().getAscii8bitEncoding();
+                        
+                        // All bytes can be considered raw strings and forced to particular codings if not 8bitascii
+                        proxyClass.addMethod("to_s", new JavaMethodZero(proxyClass, PUBLIC) {
+                            @Override
+                            public IRubyObject call(ThreadContext context, IRubyObject self, RubyModule clazz, String name) {
+                                ByteList bytes = new ByteList((byte[]) ((ArrayJavaProxy) self).getObject(), ascii8bit);
+                                return RubyString.newStringLight(context.runtime, bytes);
+                            }
+                        });
+                    }   
                 } else if (c.isPrimitive()) {
                     proxyClass = createProxyClass(runtime,
                             runtime.getJavaSupport().getConcreteProxyClass(),
@@ -471,16 +493,16 @@ public class Java implements Library {
                             runtime.getJavaSupport().getConcreteProxyClass(),
                             javaClass, true);
                     if (NEW_STYLE_EXTENSION) {
-                        proxyClass.getMetaClass().defineAnnotatedMethods(NewStyleExtensionInherited.class);
+                        proxyClass.getMetaClass().defineAnnotatedMethods(Java.NewStyleExtensionInherited.class);
                     } else {
-                        proxyClass.getMetaClass().defineAnnotatedMethods(OldStyleExtensionInherited.class);
+                        proxyClass.getMetaClass().defineAnnotatedMethods(Java.OldStyleExtensionInherited.class);
                     }
                     addToJavaPackageModule(proxyClass, javaClass);
 
                 } else {
                     // other java proxy classes added under their superclass' java proxy
                     proxyClass = createProxyClass(runtime,
-                        (RubyClass) getProxyClass(runtime, JavaClass.get(runtime, c.getSuperclass())),
+                        (RubyClass) getProxyClass(runtime, c.getSuperclass()),
                         javaClass, false);
                     // include interface modules into the proxy class
                     Class<?>[] interfaces = c.getInterfaces();
@@ -511,6 +533,7 @@ public class Java implements Library {
         } finally {
             javaClass.unlockProxy();
         }
+        
         return proxyClass;
     }
 
@@ -827,6 +850,12 @@ public class Java implements Library {
         }
     }
 
+    public static RubyModule getJavaPackageModule(Ruby runtime, Package pkg) {
+        return pkg == null ?
+                getJavaPackageModule(runtime, "") :
+                getJavaPackageModule(runtime, pkg.getName());
+    }
+
     private static RubyModule getJavaPackageModule(Ruby runtime, String packageString) {
         String packageName;
         int length = packageString.length();
@@ -921,7 +950,7 @@ public class Java implements Library {
             // package name. (and seriously, folks, look into best practices...)
             IRubyObject previousErrorInfo = RuntimeHelpers.getErrorInfo(runtime);
             try {
-                return getProxyClass(runtime, JavaClass.forNameQuiet(runtime, fullName));
+                return getProxyClass(runtime, runtime.getJavaSupport().loadJavaClassQuiet(fullName));
             } catch (RaiseException re) { /* expected */
                 RubyException rubyEx = re.getException();
                 if (rubyEx.kind_of_p(context, runtime.getStandardError()).isTrue()) {
@@ -987,7 +1016,7 @@ public class Java implements Library {
         if (Character.isLowerCase(name.charAt(0))) {
             // this covers primitives and (unlikely) lower-case class names
             try {
-                return getProxyClass(runtime, JavaClass.forNameQuiet(runtime, name));
+                return getProxyClass(runtime, runtime.getJavaSupport().loadJavaClassQuiet(name));
             } catch (RaiseException re) { /* not primitive or lc class */
                 RubyException rubyEx = re.getException();
                 if (rubyEx.kind_of_p(context, runtime.getStandardError()).isTrue()) {
@@ -1272,6 +1301,11 @@ public class Java implements Library {
     }
     
     public static IRubyObject allocateProxy(Object javaObject, RubyClass clazz) {
+        // Arrays are never stored in OPC
+        if (clazz.getSuperClass() == clazz.getRuntime().getJavaSupport().getArrayProxyClass()) {
+            return new ArrayJavaProxy(clazz.getRuntime(), clazz, javaObject, JavaUtil.getJavaConverter(javaObject.getClass().getComponentType()));
+        }
+        
         IRubyObject proxy = clazz.allocate();
         if (proxy instanceof JavaProxy) {
             ((JavaProxy)proxy).setObject(javaObject);

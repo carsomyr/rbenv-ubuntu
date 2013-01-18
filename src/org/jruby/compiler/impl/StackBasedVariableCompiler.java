@@ -89,11 +89,8 @@ public class StackBasedVariableCompiler extends AbstractVariableCompiler {
         }
     }
 
-    public void beginClass(CompilerCallback bodyPrep, StaticScope scope) {
+    public void beginClass(StaticScope scope) {
         assert scope != null : "compiling a class body with no scope";
-        
-        // class bodies prepare their own dynamic scope, so let it do that
-        bodyPrep.call(methodCompiler);
         
         // fill in all vars with nil so compiler is happy about future accesses
         if (scope.getNumberOfVariables() > 0) {
@@ -120,9 +117,14 @@ public class StackBasedVariableCompiler extends AbstractVariableCompiler {
         methodCompiler.invokeThreadContext("getCurrentScope", sig(DynamicScope.class));
         method.astore(methodCompiler.getDynamicScopeIndex());
         
+        boolean first = true;
         for (int i = 0; i < scope.getNumberOfVariables(); i++) {
-            methodCompiler.loadNil();
-            assignLocalVariable(i, false);
+            if (first) {
+                methodCompiler.loadNil();
+                first = false;
+            }
+            // assign, duping value for all but last
+            assignLocalVariable(i, i + 1 < scope.getNumberOfVariables());
         }
 
         // temp locals must start after last real local

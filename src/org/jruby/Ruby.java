@@ -99,13 +99,13 @@ import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.EventHook;
 import org.jruby.runtime.GlobalVariable;
 import org.jruby.runtime.IAccessor;
-import org.jruby.runtime.MethodIndex;
 import org.jruby.runtime.ObjectAllocator;
 import org.jruby.runtime.ObjectSpace;
 import org.jruby.runtime.RubyEvent;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.runtime.encoding.EncodingService;
+import org.jruby.runtime.invokedynamic.MethodNames;
 import org.jruby.runtime.load.BasicLibraryService;
 import org.jruby.runtime.load.CompiledScriptLoader;
 import org.jruby.runtime.load.Library;
@@ -115,6 +115,7 @@ import org.jruby.runtime.opto.OptoFactory;
 import org.jruby.runtime.profile.ProfileData;
 import org.jruby.runtime.profile.ProfilePrinter;
 import org.jruby.runtime.profile.ProfiledMethod;
+import org.jruby.runtime.profile.ProfileOutput;
 import org.jruby.runtime.scope.ManyVarsDynamicScope;
 import org.jruby.threading.DaemonThreadFactory;
 import org.jruby.util.ByteList;
@@ -185,9 +186,6 @@ public final class Ruby {
      */
     private Ruby(RubyInstanceConfig config) {
         this.config             = config;
-        this.is1_9              = config.getCompatVersion().is1_9();
-        this.is2_0              = config.getCompatVersion().is2_0();
-        this.doNotReverseLookupEnabled = is1_9;
         this.threadService      = new ThreadService(this);
         if(config.isSamplingEnabled()) {
             org.jruby.util.SimpleSampler.registerThreadContext(threadService.getCurrentContext());
@@ -200,13 +198,6 @@ public final class Ruby {
             this.staticScopeFactory = new StaticScopeFactory(this);
         }
 
-        this.in                 = config.getInput();
-        this.out                = config.getOutput();
-        this.err                = config.getError();
-        this.objectSpaceEnabled = config.isObjectSpaceEnabled();
-        this.profile            = config.getProfile();
-        this.currentDirectory   = config.getCurrentDirectory();
-        this.kcode              = config.getKCode();
         this.beanManager        = BeanManagerFactory.create(this, config.isManagementEnabled());
         this.jitCompiler        = new JITCompiler(this);
         this.parserStats        = new ParserStats(this);
@@ -219,7 +210,8 @@ public final class Ruby {
             myRandom = new Random();
         }
         this.random = myRandom;
-        this.hashSeed = this.random.nextInt();
+        this.hashSeedK0 = this.random.nextLong();
+        this.hashSeedK1 = this.random.nextLong();
         
         this.beanManager.register(new Config(this));
         this.beanManager.register(parserStats);
@@ -227,9 +219,44 @@ public final class Ruby {
         this.beanManager.register(new org.jruby.management.Runtime(this));
 
         this.runtimeCache = new RuntimeCache();
-        runtimeCache.initMethodCache(ClassIndex.MAX_CLASSES * MethodIndex.MAX_METHODS);
+        runtimeCache.initMethodCache(ClassIndex.MAX_CLASSES * MethodNames.values().length - 1);
         
         constantInvalidator = OptoFactory.newConstantInvalidator();
+        checkpointInvalidator = OptoFactory.newConstantInvalidator();
+
+        if (config.isObjectSpaceEnabled()) {
+            objectSpacer = ENABLED_OBJECTSPACE;
+        } else {
+            objectSpacer = DISABLED_OBJECTSPACE;
+        }
+
+        reinitialize(false);
+    }
+
+    void reinitialize(boolean reinitCore) {
+        this.is1_9              = config.getCompatVersion().is1_9();
+        this.is2_0              = config.getCompatVersion().is2_0();
+        this.doNotReverseLookupEnabled = is1_9;
+
+        if (config.getCompileMode() == CompileMode.OFFIR ||
+                config.getCompileMode() == CompileMode.FORCEIR) {
+            this.staticScopeFactory = new IRStaticScopeFactory(this);
+        } else {
+            this.staticScopeFactory = new StaticScopeFactory(this);
+        }
+
+        this.in                 = config.getInput();
+        this.out                = config.getOutput();
+        this.err                = config.getError();
+        this.objectSpaceEnabled = config.isObjectSpaceEnabled();
+        this.siphashEnabled     = config.isSiphashEnabled();
+        this.profile            = config.getProfile();
+        this.currentDirectory   = config.getCurrentDirectory();
+        this.kcode              = config.getKCode();
+
+        if (reinitCore) {
+            RubyGlobal.initARGV(this);
+        }
     }
     
     /**
@@ -324,6 +351,13 @@ public final class Ruby {
             globalRuntime = null;
             setGlobalRuntimeFirstTimeOnly(this);
         }
+    }
+
+    /**
+     * Clear the global runtime.
+     */
+    public static void clearGlobalRuntime() {
+        globalRuntime = null;
     }
 
     /**
@@ -562,7 +596,7 @@ public final class Ruby {
             getGlobalVariables().set("$\\", getGlobalVariables().get("$/"));
         }
 
-        // we do preand post load outside the "body" versions to pre-prepare
+        // we do pre and post load outside the "body" versions to pre-prepare
         // and pre-push the dynamic scope we need for lastline
         RuntimeHelpers.preLoad(context, ((RootNode)scriptNode).getStaticScope().getVariables());
 
@@ -748,6 +782,12 @@ public final class Ruby {
                 JITCompiler.saveToCodeCache(this, asmCompiler.getClassByteArray(), "ruby/jit", new File(RubyInstanceConfig.JIT_CODE_CACHE, pathName + ".class"));
             }
             script = (Script)asmCompiler.loadClass(classLoader).newInstance();
+
+            // __file__ method expects its scope at 0, so prepare that here
+            // this is only needed for the "gets loop" which skips calling load
+            StaticScope rootScope = ((RootNode)node).getStaticScope();
+            if (rootScope.getModule() == null) rootScope.setModule(objectClass);
+            script.setRootScope(rootScope);
 
             if (config.isJitLogging()) {
                 LOG.info("compiled: " + node.getPosition().getFile());
@@ -1121,7 +1161,9 @@ public final class Ruby {
         initBuiltins();
 
         // load JRuby internals, which loads Java support
-        loadService.require("jruby");
+        if (!RubyInstanceConfig.DEBUG_PARSER) {
+            loadService.require("jruby");
+        }
 
         // out of base boot mode
         booting = false;
@@ -1216,8 +1258,8 @@ public final class Ruby {
         for (int i=0; i<NIL_PREFILLED_ARRAY_SIZE; i++) nilPrefilledArray[i] = nilObject;
         singleNilArray = new IRubyObject[] {nilObject};
 
-        falseObject = new RubyBoolean(this, false);
-        trueObject = new RubyBoolean(this, true);
+        falseObject = new RubyBoolean.False(this);
+        trueObject = new RubyBoolean.True(this);
     }
 
     private void initCore() {
@@ -1513,6 +1555,9 @@ public final class Ruby {
     }
 
     private void initBuiltins() {
+        // We cannot load any .rb and debug new parser features
+        if (RubyInstanceConfig.DEBUG_PARSER) return;
+        
         addLazyBuiltin("java.rb", "java", "org.jruby.javasupport.Java");
         addLazyBuiltin("jruby.rb", "jruby", "org.jruby.ext.jruby.JRubyLibrary");
         addLazyBuiltin("jruby/util.rb", "jruby/util", "org.jruby.ext.jruby.JRubyUtilLibrary");
@@ -1523,7 +1568,7 @@ public final class Ruby {
         addLazyBuiltin("strscan.jar", "strscan", "org.jruby.ext.strscan.StringScannerLibrary");
         addLazyBuiltin("zlib.jar", "zlib", "org.jruby.ext.zlib.ZlibLibrary");
         addLazyBuiltin("enumerator.jar", "enumerator", "org.jruby.ext.enumerator.EnumeratorLibrary");
-        addLazyBuiltin("readline.jar", "readline", "org.jruby.ext.ReadlineService");
+        addLazyBuiltin("readline.jar", "readline", "org.jruby.ext.readline.ReadlineService");
         addLazyBuiltin("thread.jar", "thread", "org.jruby.ext.thread.ThreadLibrary");
         addLazyBuiltin("thread.rb", "thread", "org.jruby.ext.thread.ThreadLibrary");
         addLazyBuiltin("digest.jar", "digest.so", "org.jruby.ext.digest.DigestLibrary");
@@ -1545,7 +1590,6 @@ public final class Ruby {
         addLazyBuiltin("fcntl.rb", "fcntl", "org.jruby.ext.fcntl.FcntlLibrary");
         addLazyBuiltin("rubinius.jar", "rubinius", "org.jruby.ext.rubinius.RubiniusLibrary");
         addLazyBuiltin("yecht.jar", "yecht", "YechtService");
-        addLazyBuiltin("jopenssl.jar", "jopenssl", "org.jruby.ext.openssl.OSSLLibrary");
 
         if (is1_9()) {
             addLazyBuiltin("mathn/complex.jar", "mathn/complex", "org.jruby.ext.mathn.Complex");
@@ -1580,6 +1624,9 @@ public final class Ruby {
     }
     
     private void initRubyKernel() {
+        // We cannot load any .rb and debug new parser features
+        if (RubyInstanceConfig.DEBUG_PARSER) return;
+        
         // load Ruby parts of core
         loadService.loadFromClassLoader(getClassLoader(), "jruby/kernel.rb", false);
         
@@ -2473,6 +2520,12 @@ public final class Ruby {
         return loadService;
     }
 
+    /**
+     * This is an internal encoding if actually specified via default_internal=
+     * or passed in via -E.
+     * 
+     * @return null or encoding
+     */
     public Encoding getDefaultInternalEncoding() {
         return defaultInternalEncoding;
     }
@@ -2938,9 +2991,8 @@ public final class Ruby {
 
         if (config.isProfilingEntireRun()) {
             // not using logging because it's formatted
-            System.err.println("\nmain thread profile results:");
             ProfileData profileData = threadService.getMainThread().getContext().getProfileData();
-            printProfileData(profileData, System.err);
+            printProfileData(profileData);
         }
 
         if (systemExit && status != 0) {
@@ -2953,13 +3005,25 @@ public final class Ruby {
      * @param profileData
      * @param out
      * @see RubyInstanceConfig#getProfilingMode()
+     * @deprecated use printProfileData(ProfileData) or printProfileData(ProfileData,ProfileOutput)
      */
     public void printProfileData(ProfileData profileData, PrintStream out) {
-        ProfilePrinter profilePrinter = ProfilePrinter.newPrinter(config.getProfilingMode(), profileData);
-        if (profilePrinter != null) profilePrinter.printProfile(out);
-        else out.println("\nno printer for profile mode: " + config.getProfilingMode() + " !");
+        printProfileData(profileData, new ProfileOutput(out));
     }
-    
+
+    public void printProfileData(ProfileData profileData) {
+        printProfileData(profileData, config.getProfileOutput());
+    }
+
+    public void printProfileData(ProfileData profileData, ProfileOutput output) {
+        ProfilePrinter profilePrinter = ProfilePrinter.newPrinter(config.getProfilingMode(), profileData);
+        if (profilePrinter != null) {
+            output.printProfile(profilePrinter);
+        } else {
+            out.println("\nno printer for profile mode: " + config.getProfilingMode() + " !");
+        }
+    }
+
     // new factory methods ------------------------------------------------------------------------
 
     public RubyArray newEmptyArray() {
@@ -3911,6 +3975,11 @@ public final class Ruby {
     public void setObjectSpaceEnabled(boolean objectSpaceEnabled) {
         this.objectSpaceEnabled = objectSpaceEnabled;
     }
+    
+    // You cannot set siphashEnabled property except via RubyInstanceConfig to avoid mixing hash functions.
+    public boolean isSiphashEnabled() {
+        return siphashEnabled;
+    }
 
     public long getStartTime() {
         return startTime;
@@ -3998,6 +4067,10 @@ public final class Ruby {
     
     public Invalidator getConstantInvalidator() {
         return constantInvalidator;
+    }
+    
+    public Invalidator getCheckpointInvalidator() {
+        return checkpointInvalidator;
     }
     
     public void invalidateConstants() {
@@ -4168,17 +4241,40 @@ public final class Ruby {
     }
     
     /**
-     * Whether the Fixnum class has been reopened and modified
+     * Mark Fixnum as reopened
+     */
+    public void reopenFixnum() {
+        fixnumInvalidator.invalidate();
+        fixnumReopened = true;
+    }
+    
+    /**
+     * Retrieve the invalidator for Fixnum reopening
+     */
+    public Invalidator getFixnumInvalidator() {
+        return fixnumInvalidator;
+    }
+    
+    /**
+     * Whether the Float class has been reopened and modified
      */
     public boolean isFixnumReopened() {
         return fixnumReopened;
     }
     
     /**
-     * Set whether the Fixnum class has been reopened and modified
+     * Mark Float as reopened
      */
-    public void setFixnumReopened(boolean fixnumReopened) {
-        this.fixnumReopened = fixnumReopened;
+    public void reopenFloat() {
+        floatInvalidator.invalidate();
+        floatReopened = true;
+    }
+    
+    /**
+     * Retrieve the invalidator for Float reopening
+     */
+    public Invalidator getFloatInvalidator() {
+        return floatInvalidator;
     }
     
     /**
@@ -4186,13 +4282,6 @@ public final class Ruby {
      */
     public boolean isFloatReopened() {
         return floatReopened;
-    }
-    
-    /**
-     * Set whether the Float class has been reopened and modified
-     */
-    public void setFloatReopened(boolean floatReopened) {
-        this.floatReopened = floatReopened;
     }
     
     public boolean isBooting() {
@@ -4206,9 +4295,13 @@ public final class Ruby {
     public Random getRandom() {
         return random;
     }
-    
-    public int getHashSeed() {
-        return hashSeed;
+
+    public long getHashSeedK0() {
+        return hashSeedK0;
+    }
+
+    public long getHashSeedK1() {
+        return hashSeedK1;
     }
     
     public StaticScopeFactory getStaticScopeFactory() {
@@ -4245,6 +4338,7 @@ public final class Ruby {
     }
 
     private final Invalidator constantInvalidator;
+    private final Invalidator checkpointInvalidator;
     private final ThreadService threadService;
     
     private POSIX posix;
@@ -4258,6 +4352,7 @@ public final class Ruby {
     private boolean globalAbortOnExceptionEnabled = false;
     private boolean doNotReverseLookupEnabled = false;
     private volatile boolean objectSpaceEnabled;
+    private boolean siphashEnabled;
     
     private final Set<Script> jittedMethods = Collections.synchronizedSet(new WeakHashSet<Script>());
     
@@ -4328,12 +4423,12 @@ public final class Ruby {
     private final long startTime = System.currentTimeMillis();
 
     private final RubyInstanceConfig config;
-    private final boolean is1_9;
-    private final boolean is2_0;
+    private boolean is1_9;
+    private boolean is2_0;
 
-    private final InputStream in;
-    private final PrintStream out;
-    private final PrintStream err;
+    private InputStream in;
+    private PrintStream out;
+    private PrintStream err;
 
     // Java support
     private JavaSupport javaSupport;
@@ -4451,6 +4546,9 @@ public final class Ruby {
     // Count of built-in warning backtraces generated by code running in this runtime
     private final AtomicInteger warningCount = new AtomicInteger();
     
+    private Invalidator 
+            fixnumInvalidator = OptoFactory.newConstantInvalidator(),
+            floatInvalidator = OptoFactory.newConstantInvalidator();
     private boolean fixnumReopened, floatReopened;
     
     private volatile boolean booting = true;
@@ -4469,9 +4567,10 @@ public final class Ruby {
     private final Random random;
 
     /** The runtime-local seed for hash randomization */
-    private int hashSeed;
+    private long hashSeedK0;
+    private long hashSeedK1;
     
-    private final StaticScopeFactory staticScopeFactory;
+    private StaticScopeFactory staticScopeFactory;
     
     private IRManager irManager;
 
@@ -4485,4 +4584,25 @@ public final class Ruby {
     private JavaProxyClassFactory javaProxyClassFactory;
 
     private EnumMap<DefinedMessage, RubyString> definedMessages = new EnumMap<DefinedMessage, RubyString>(DefinedMessage.class);
+
+    private interface ObjectSpacer {
+        public void addToObjectSpace(Ruby runtime, boolean useObjectSpace, IRubyObject object);
+    }
+
+    private static final ObjectSpacer DISABLED_OBJECTSPACE = new ObjectSpacer() {
+        public void addToObjectSpace(Ruby runtime, boolean useObjectSpace, IRubyObject object) {
+        }
+    };
+
+    private static final ObjectSpacer ENABLED_OBJECTSPACE = new ObjectSpacer() {
+        public void addToObjectSpace(Ruby runtime, boolean useObjectSpace, IRubyObject object) {
+            if (useObjectSpace) runtime.objectSpace.add(object);
+        }
+    };
+
+    private final ObjectSpacer objectSpacer;
+
+    public void addToObjectSpace(boolean useObjectSpace, IRubyObject object) {
+        objectSpacer.addToObjectSpace(this, useObjectSpace, object);
+    }
 }

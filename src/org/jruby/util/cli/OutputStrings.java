@@ -59,6 +59,9 @@ public class OutputStrings {
                 .append("  --profile.flat  synonym for --profile\n")
                 .append("  --profile.graph run with instrumented (timed) profiling, graph format\n")
                 .append("  --profile.html  run with instrumented (timed) profiling, graph format in HTML\n")
+                .append("  --profile.json  run with instrumented (timed) profiling, graph format in JSON\n")
+                .append("  --profile.out [file]\n")
+                .append("                  output profile data to [file]\n")
                 .append("  --client        use the non-optimizing \"client\" JVM\n")
                 .append("                    (improves startup; default)\n")
                 .append("  --server        use the optimizing \"server\" JVM (improves perf)\n")
@@ -150,6 +153,6 @@ public class OutputStrings {
     }
 
     public static String getCopyrightString() {
-        return "JRuby - Copyright (C) 2001-2012 The JRuby Community (and contribs)";
+        return "JRuby - Copyright (C) 2001-2013 The JRuby Community (and contribs)";
     }
 }

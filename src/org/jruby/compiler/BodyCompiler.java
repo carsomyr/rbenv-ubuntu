@@ -158,7 +158,7 @@ public interface BodyCompiler {
      * A "shortcut" append that skips conversions to String where possible.
      * Same stack requirements as appendObject.
      */
-    public void shortcutAppend();
+    public void shortcutAppend(boolean is19);
 
     /**
      * Convert a String on stack to a Symbol
@@ -273,6 +273,24 @@ public interface BodyCompiler {
     public void performBooleanBranch2(BranchCallback trueBranch, BranchCallback falseBranch);
     
     /**
+     * Perform a boolean branch operation based on the boolean global value
+     * on the stack. If true, invoke the true branch callback. Otherwise, invoke the false branch callback.
+     * 
+     * @param trueBranch The callback for generating code for the "true" condition
+     * @param falseBranch The callback for generating code for the "false" condition
+     */
+    public void performBooleanGlobalBranch(String globalName, BranchCallback trueBranch, BranchCallback falseBranch);
+    
+    /**
+     * Perform a boolean branch operation based on the boolean constant value
+     * on the stack. If true, invoke the true branch callback. Otherwise, invoke the false branch callback.
+     * 
+     * @param trueBranch The callback for generating code for the "true" condition
+     * @param falseBranch The callback for generating code for the "false" condition
+     */
+    public void performBooleanConstantBranch(String globalName, BranchCallback trueBranch, BranchCallback falseBranch);
+    
+    /**
      * Perform a logical short-circuited Ruby "and" operation, using Ruby notions of true and false.
      * If the value on top of the stack is false, it remains and the branch is not executed. If it is true,
      * the top of the stack is replaced with the result of the branch.
@@ -370,12 +388,54 @@ public interface BodyCompiler {
      * Define an alias for a new name to an existing oldName'd method.
      */
     public void defineAlias(CompilerCallback args);
-    
-    public void assignConstantInCurrent(String name);
-    
-    public void assignConstantInModule(String name);
-    
-    public void assignConstantInObject(String name);
+
+    /**
+     * Assign a constant on the class or module currently in scope.
+     *
+     * @param name name of the constant
+     * @param value callback to load the value
+     */
+    public void assignConstantInCurrent(String name, CompilerCallback value);
+
+    /**
+     * Assign a constant on a specific class or module.
+     *
+     * @param name name of the constant
+     * @param moduleAndValue callback to load the class/module and value
+     */
+    public void assignConstantInModule(String name, CompilerCallback moduleAndValue);
+
+    /**
+     * Assign a constant on the Object class.
+     *
+     * @param name name of the constant
+     * @param value callback to load the value
+     */
+    public void assignConstantInObject(String name, CompilerCallback value);
+
+    /**
+     * Assign a constant on the class or module currently in scope. The value
+     * is expected to be on the top of the stack.
+     *
+     * @param name name of the constant
+     */
+    public void mAssignConstantInCurrent(String name);
+
+    /**
+     * Assign a constant on a specific class or module. The class/module
+     * and value are expected to be on the top of the stack.
+     *
+     * @param name name of the constant
+     */
+    public void mAssignConstantInModule(String name);
+
+    /**
+     * Assign a constant on the Object class. The value
+     * is expected to be on the top of the stack.
+     *
+     * @param name name of the constant
+     */
+    public void mAssignConstantInObject(String name);
     
     /**
      * Retrieve the constant with the specified name available at the current point in the

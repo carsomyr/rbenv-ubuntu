@@ -38,6 +38,7 @@ import org.jruby.RubyFixnum;
 import org.jruby.RubyInteger;
 import org.jruby.RubyModule;
 import org.jruby.anno.JRubyClass;
+import org.jruby.java.util.ArrayUtils;
 import org.jruby.runtime.ObjectAllocator;
 import org.jruby.runtime.builtin.IRubyObject;
 
@@ -74,43 +75,8 @@ public class JavaArray extends JavaObject {
             this.getValue() == ((JavaArray)other).getValue();
     }
 
-    @Deprecated
-    public IRubyObject aref(IRubyObject index) {
-        if (! (index instanceof RubyInteger)) {
-            throw getRuntime().newTypeError(index, getRuntime().getInteger());
-        }
-        int intIndex = (int) ((RubyInteger) index).getLongValue();
-        if (intIndex < 0 || intIndex >= getLength()) {
-            throw getRuntime().newArgumentError(
-                                    "index out of bounds for java array (" + intIndex +
-                                    " for length " + getLength() + ")");
-        }
-        Object result = Array.get(getValue(), intIndex);
-        if (result == null) {
-            return getRuntime().getNil();
-        }
-        return JavaObject.wrap(getRuntime(), result);
-    }
-
     public IRubyObject arefDirect(Ruby runtime, int intIndex) {
-        Object array = getValue();
-
-        try {
-            return JavaUtil.convertJavaArrayElementToRuby(runtime, javaConverter, array, intIndex);
-        } catch (IndexOutOfBoundsException e) {
-            throw runtime.newArgumentError(
-                    "index out of bounds for java array (" + intIndex +
-                            " for length " + getLength() + ")");
-        }
-    }
-
-    @Deprecated
-    public IRubyObject at(int index) {
-        Object result = Array.get(getValue(), index);
-        if (result == null) {
-            return getRuntime().getNil();
-        }
-        return JavaObject.wrap(getRuntime(), result);
+        return ArrayUtils.arefDirect(runtime, getValue(), javaConverter, intIndex);
     }
 
     public IRubyObject aset(IRubyObject index, IRubyObject value) {
@@ -122,47 +88,18 @@ public class JavaArray extends JavaObject {
             throw getRuntime().newTypeError("not a java object:" + value);
         }
         Object javaObject = ((JavaObject) value).getValue();
-        setWithExceptionHandling(intIndex, javaObject);
+        
+        ArrayUtils.setWithExceptionHandlingDirect(getRuntime(), javaObject, intIndex, javaObject);
+        
         return value;
     }
 
     public IRubyObject asetDirect(Ruby runtime, int intIndex, IRubyObject value) {
-        Object array = getValue();
-
-        try {
-            javaConverter.set(runtime, array, intIndex, value);
-        } catch (IndexOutOfBoundsException e) {
-            throw runtime.newArgumentError(
-                    "index out of bounds for java array (" + intIndex +
-                            " for length " + getLength() + ")");
-        } catch (ArrayStoreException e) {
-            throw runtime.newTypeError(
-                    "wrong element type " + value.getClass() + "(array contains " +
-                            getValue().getClass().getComponentType().getName() + ")");
-        } catch (IllegalArgumentException iae) {
-            throw runtime.newArgumentError(
-                    "wrong element type " + value.getClass() + "(array contains " +
-                            getValue().getClass().getComponentType().getName() + ")");
-        }
-        return value;
+        return ArrayUtils.asetDirect(runtime, getValue(), javaConverter, intIndex, value);
     }
     
     public void setWithExceptionHandling(int intIndex, Object javaObject) {
-        try {
-            Array.set(getValue(), intIndex, javaObject);
-        } catch (IndexOutOfBoundsException e) {
-            throw getRuntime().newArgumentError(
-                                    "index out of bounds for java array (" + intIndex +
-                                    " for length " + getLength() + ")");
-        } catch (ArrayStoreException e) {
-            throw getRuntime().newTypeError(
-                                    "wrong element type " + javaObject.getClass() + "(array contains " +
-                                    getValue().getClass().getComponentType().getName() + ")");
-        } catch (IllegalArgumentException iae) {
-            throw getRuntime().newArgumentError(
-                                    "wrong element type " + javaObject.getClass() + "(array contains " +
-                                    getValue().getClass().getComponentType().getName() + ")");
-        }
+        ArrayUtils.setWithExceptionHandlingDirect(getRuntime(), getValue(), intIndex, javaObject);
     }
 
     public IRubyObject afill(IRubyObject beginIndex, IRubyObject endIndex, IRubyObject value) {

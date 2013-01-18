@@ -39,6 +39,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.lang.NumberFormatException;
+import java.math.BigDecimal;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -62,6 +64,7 @@ import org.jruby.runtime.Constants;
 import org.jruby.runtime.backtrace.TraceType;
 import org.jruby.runtime.load.LoadService;
 import org.jruby.runtime.load.LoadService19;
+import org.jruby.runtime.profile.ProfileOutput;
 import org.jruby.util.ClassCache;
 import org.jruby.util.InputStreamMarkCursor;
 import org.jruby.util.JRubyFile;
@@ -659,6 +662,14 @@ public class RubyInstanceConfig {
     public boolean isObjectSpaceEnabled() {
         return objectSpaceEnabled;
     }
+    
+    public void setSiphashEnabled(boolean newSiphashEnabled) {
+        siphashEnabled = newSiphashEnabled;
+    }
+    
+    public boolean isSiphashEnabled() {
+        return siphashEnabled;
+    }
 
     public void setEnvironment(Map newEnvironment) {
         if (newEnvironment == null) newEnvironment = new HashMap();
@@ -1000,6 +1011,14 @@ public class RubyInstanceConfig {
         return profilingMode;
     }
 
+    public void setProfileOutput(ProfileOutput output) {
+        this.profileOutput = output;
+    }
+
+    public ProfileOutput getProfileOutput() {
+        return profileOutput;
+    }
+
     public boolean hasShebangLine() {
         return hasShebangLine;
     }
@@ -1185,6 +1204,7 @@ public class RubyInstanceConfig {
     private PrintStream error          = System.err;
     private Profile profile            = Profile.DEFAULT;
     private boolean objectSpaceEnabled = Options.OBJECTSPACE_ENABLED.load();
+    private boolean siphashEnabled     = Options.SIPHASH_ENABLED.load();
 
     private CompileMode compileMode = CompileMode.JIT;
     private boolean runRubyInProcess   = true;
@@ -1208,6 +1228,7 @@ public class RubyInstanceConfig {
     private String externalEncoding = null;
 		
     private ProfilingMode profilingMode = ProfilingMode.OFF;
+    private ProfileOutput profileOutput = new ProfileOutput(System.err);
     
     private ClassLoader contextLoader = Thread.currentThread().getContextClassLoader();
     private ClassLoader loader = contextLoader == null ? RubyInstanceConfig.class.getClassLoader() : contextLoader;
@@ -1307,10 +1328,6 @@ public class RubyInstanceConfig {
         public boolean shouldPrecompileCLI() {
             switch (this) {
             case JIT: case FORCE: case FORCEIR:
-                if (DYNOPT_COMPILE_ENABLED) {
-                    // don't precompile the CLI script in dynopt mode
-                    return false;
-                }
                 return true;
             }
             return false;
@@ -1374,12 +1391,6 @@ public class RubyInstanceConfig {
      * Set with the <tt>jruby.compile.peephole</tt> system property.
      */
     public static final boolean PEEPHOLE_OPTZ = Options.COMPILE_PEEPHOLE.load();
-    /**
-     * Enable "dynopt" optimizations.
-     *
-     * Set with the <tt>jruby.compile.dynopt</tt> system property.
-     */
-    public static boolean DYNOPT_COMPILE_ENABLED = Options.COMPILE_DYNOPT.load();
 
     /**
      * Enable compiler "noguards" optimizations.
@@ -1551,6 +1562,8 @@ public class RubyInstanceConfig {
      */
     public static final boolean DEBUG_SCRIPT_RESOLUTION = Options.DEBUG_SCRIPTRESOLUTION.load();
 
+    public static final boolean DEBUG_PARSER = Options.DEBUG_PARSER.load();
+
     public static final boolean JUMPS_HAVE_BACKTRACE = Options.JUMP_BACKTRACE.load();
 
     public static final boolean JIT_CACHE_ENABLED = Options.JIT_CACHE.load();
@@ -1573,26 +1586,7 @@ public class RubyInstanceConfig {
     public static final boolean UPPER_CASE_PACKAGE_NAME_ALLOWED = Options.JI_UPPER_CASE_PACKAGE_NAME_ALLOWED.load();
     
     
-    public static final boolean USE_INVOKEDYNAMIC;
-    static {
-        boolean isHotspot =
-                SafePropertyAccessor.getProperty("java.vm.name", "").toLowerCase().contains("hotspot") ||
-                        SafePropertyAccessor.getProperty("java.vm.name", "").toLowerCase().contains("openjdk");
-
-        String version = SafePropertyAccessor.getProperty("java.specification.version", "1.6");
-        
-        if (isHotspot && version.equals("1.7")) {
-            // if on OpenJDK 7, on by default unless turned off
-            // TODO: turned off temporarily due to the lack of 100% working OpenJDK7 indy support
-            USE_INVOKEDYNAMIC = Options.COMPILE_INVOKEDYNAMIC.load() && Options.COMPILE_INVOKEDYNAMIC.isSpecified();
-        } else if (isHotspot && version.equals("1.8")) {
-            // OpenJDK 8 will have the new 100% working logic soon, so we enable by default
-            USE_INVOKEDYNAMIC = Options.COMPILE_INVOKEDYNAMIC.load();
-        } else {
-            // if not on Java 7, on only if explicitly turned on
-            USE_INVOKEDYNAMIC = Options.COMPILE_INVOKEDYNAMIC.load() && Options.COMPILE_INVOKEDYNAMIC.isSpecified();
-        }
-    }
+    public static final boolean USE_INVOKEDYNAMIC = Options.COMPILE_INVOKEDYNAMIC.load();
     
     // max times an indy call site can fail before it goes to simple IC
     public static final int MAX_FAIL_COUNT = Options.INVOKEDYNAMIC_MAXFAIL.load();

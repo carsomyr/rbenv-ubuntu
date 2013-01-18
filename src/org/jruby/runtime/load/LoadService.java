@@ -39,12 +39,16 @@ import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.net.URISyntaxException;
+import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.jar.JarFile;
@@ -202,6 +206,8 @@ public class LoadService {
 
     protected RubyArray loadPath;
     protected StringArraySet loadedFeatures;
+    protected RubyArray loadedFeaturesDup;
+    private final Map<String, String> loadedFeaturesIndex = new ConcurrentHashMap<String, String>();
     protected final Map<String, Library> builtinLibraries = new HashMap<String, Library>();
 
     protected final Map<String, JarFile> jarFiles = new HashMap<String, JarFile>();
@@ -294,9 +300,25 @@ public class LoadService {
             addPath(dir);
         }
     }
+    
+    protected boolean isFeatureInIndex(String shortName) {
+        return loadedFeaturesIndex.containsKey(shortName);
+    }
 
+    @Deprecated
     protected void addLoadedFeature(String name) {
+        addLoadedFeature(name, name);
+    }
+
+    protected void addLoadedFeature(String shortName, String name) {
         loadedFeatures.append(RubyString.newString(runtime, name));
+        
+        addFeatureToIndex(shortName, name);
+    }
+    
+    protected void addFeatureToIndex(String shortName, String name) {
+        loadedFeaturesDup = (RubyArray)loadedFeatures.dup();
+        loadedFeaturesIndex.put(shortName, name);
     }
 
     protected void addPath(String path) {
@@ -534,7 +556,7 @@ public class LoadService {
 
         boolean loaded = tryLoadingLibraryOrScript(runtime, state);
         if (loaded) {
-            addLoadedFeature(state.loadName);
+            addLoadedFeature(file, state.loadName);
         }
         return loaded;
     }
@@ -625,9 +647,27 @@ public class LoadService {
         RubyString nameRubyString = runtime.newString(name);
         loadedFeatures.delete(runtime.getCurrentContext(), nameRubyString, Block.NULL_BLOCK);
     }
+    
+    private boolean isFeaturesIndexUpToDate() {
+        // disable tracing during index check
+        runtime.getCurrentContext().preTrace();
+        try {
+            return loadedFeaturesDup != null && loadedFeaturesDup.eql(loadedFeatures);
+        } finally {
+            runtime.getCurrentContext().postTrace();
+        }
+    }
 
     protected boolean featureAlreadyLoaded(String name) {
-        return loadedFeatures.containsString(name);
+        if (loadedFeatures.containsString(name)) return true;
+        
+        // Bail if our features index fell out of date.
+        if (!isFeaturesIndexUpToDate()) { 
+            loadedFeaturesIndex.clear();
+            return false;
+        }
+        
+        return isFeatureInIndex(name);
     }
 
     protected boolean isJarfileLibrary(SearchState state, final String file) {
@@ -914,6 +954,8 @@ public class LoadService {
     }
 
     private static RaiseException newLoadErrorFromThrowable(Ruby runtime, String file, Throwable t) {
+        if (RubyInstanceConfig.DEBUG_PARSER) t.printStackTrace();
+        
         return runtime.newLoadError(String.format("load error: %s -- %s: %s", file, t.getClass().getName(), t.getMessage()));
     }
 
@@ -1109,13 +1151,16 @@ public class LoadService {
             for (String suffix : suffixType.getSuffixes()) {
                 String namePlusSuffix = baseName + suffix;
                 try {
-                    URL url = new URL(namePlusSuffix);
+                    URI resourceUri = new URI("jar", namePlusSuffix.substring(4), null);
+                    URL url = resourceUri.toURL();
                     debugLogTry("resourceFromJarURL", url.toString());
                     if (url.openStream() != null) {
                         foundResource = new LoadServiceResource(url, namePlusSuffix);
                         debugLogFound(foundResource);
                     }
                 } catch (FileNotFoundException e) {
+                } catch (URISyntaxException e) {
+                    throw runtime.newIOError(e.getMessage());
                 } catch (MalformedURLException e) {
                     throw runtime.newIOErrorFromException(e);
                 } catch (IOException e) {
@@ -1136,9 +1181,14 @@ public class LoadService {
 
                     debugLogTry("resourceFromJarURL", expandedFilename.toString());
                     if(file.getJarEntry(expandedFilename) != null) {
-                        foundResource = new LoadServiceResource(new URL("jar:file:" + jarFile + "!/" + expandedFilename), namePlusSuffix);
+                        URI resourceUri = new URI("jar", "file:" + jarFile + "!/" + expandedFilename, null);
+                        foundResource = new LoadServiceResource(resourceUri.toURL(), namePlusSuffix);
                         debugLogFound(foundResource);
                     }
+                } catch (URISyntaxException e) {
+                    throw runtime.newIOError(e.getMessage());
+                } catch (MalformedURLException e) {
+                    throw runtime.newIOErrorFromException(e);
                 } catch(Exception e) {}
                 if (foundResource != null) {
                     state.loadName = resolveLoadName(foundResource, namePlusSuffix);
@@ -1255,9 +1305,11 @@ public class LoadService {
             debugLogTry("resourceFromJarURLWithLoadPath", current.getName() + "!/" + canonicalEntry);
             if (current.getJarEntry(canonicalEntry) != null) {
                 try {
-                    String resourceUrl = "jar:file:" + jarFileName + "!/" + canonicalEntry;
-                    foundResource = new LoadServiceResource(new URL(resourceUrl), resourceUrl);
+                    URI resourceUri = new URI("jar", "file:" + jarFileName + "!/" + canonicalEntry, null);
+                    foundResource = new LoadServiceResource(resourceUri.toURL(), resourceUri.toString());
                     debugLogFound(foundResource);
+                } catch (URISyntaxException e) {
+                    throw runtime.newIOError(e.getMessage());
                 } catch (MalformedURLException e) {
                     throw runtime.newIOErrorFromException(e);
                 }
@@ -1334,7 +1386,7 @@ public class LoadService {
                 if (RubyInstanceConfig.DEBUG_LOAD_SERVICE) {
                     debugLogTry("resourceFromLoadPath", "'" + actualPath.toString() + "' " + actualPath.isFile() + " " + actualPath.canRead());
                 }
-                if (actualPath.isFile() && actualPath.canRead()) {
+                if (actualPath.canRead()) {
                     foundResource = new LoadServiceResource(actualPath, reportedPath, absolute);
                     debugLogFound(foundResource);
                 }

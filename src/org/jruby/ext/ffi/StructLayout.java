@@ -53,6 +53,8 @@ import org.jruby.runtime.Block;
 import org.jruby.runtime.ObjectAllocator;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
+import org.jruby.runtime.callsite.CachingCallSite;
+import org.jruby.runtime.callsite.FunctionalCachingCallSite;
 import org.jruby.util.ByteList;
 import static org.jruby.runtime.Visibility.*;
 
@@ -140,6 +142,10 @@ public final class StructLayout extends Type {
                 ArrayFieldAllocator.INSTANCE, layoutClass);
         arrayFieldClass.defineAnnotatedMethods(ArrayField.class);
 
+        RubyClass variableLengthArrayProxyClass = runtime.defineClassUnder("VariableLengthArrayProxy", runtime.getObject(),
+                ObjectAllocator.NOT_ALLOCATABLE_ALLOCATOR, layoutClass);
+        variableLengthArrayProxyClass.defineAnnotatedMethods(VariableLengthArrayProxy.class);
+
         RubyClass mappedFieldClass = runtime.defineClassUnder("Mapped", fieldClass,
                 MappedFieldAllocator.INSTANCE, layoutClass);
         mappedFieldClass.defineAnnotatedMethods(MappedField.class);
@@ -179,6 +185,9 @@ public final class StructLayout extends Type {
             if (!(f.name instanceof RubySymbol)) {
                 throw runtime.newTypeError("fields list contains field with invalid name");
             }
+            if (f.type.getNativeSize() < 1 && index < (fields.size() - 1)) {
+                throw runtime.newTypeError("sizeof field == 0");
+            }
 
             names.add(f.name);
             fieldList.add(f);
@@ -196,6 +205,7 @@ public final class StructLayout extends Type {
             memberStringMap.put(f.name.asString(), m);
             memberList.add(m);
             offset = Math.max(offset, f.offset);
+            index++;
         }
 
 
@@ -543,13 +553,15 @@ public final class StructLayout extends Type {
 
     static final class DefaultFieldIO implements FieldIO {
         public static final FieldIO INSTANCE = new DefaultFieldIO();
+        private final CachingCallSite getCallSite = new FunctionalCachingCallSite("get");
+        private final CachingCallSite putCallSite = new FunctionalCachingCallSite("put");
 
         public IRubyObject get(ThreadContext context, Storage cache, Member m, AbstractMemory ptr) {
-            return m.field.callMethod(context, "get", ptr);
+            return getCallSite.call(context, m.field, m.field, ptr);
         }
 
         public void put(ThreadContext context, Storage cache, Member m, AbstractMemory ptr, IRubyObject value) {
-            m.field.callMethod(context, "put", new IRubyObject[] { ptr, value });
+            putCallSite.call(context, m.field, m.field, ptr, value);
         }
 
         public final boolean isCacheable() {
@@ -1046,6 +1058,50 @@ public final class StructLayout extends Type {
         }
     }
 
+    @JRubyClass(name="FFI::StructLayout::VariableLengthArrayProxy", parent="Object")
+    public static class VariableLengthArrayProxy extends RubyObject {
+        protected final AbstractMemory ptr;
+        final MemoryOp aio;
+        private final Type componentType;
+
+        VariableLengthArrayProxy(Ruby runtime, IRubyObject ptr, long offset, Type.Array type, MemoryOp aio) {
+            this(runtime, runtime.getFFI().ffiModule.getClass(CLASS_NAME).getClass("VariableLengthArrayProxy"),
+                    ptr, offset, type, aio);
+        }
+
+        VariableLengthArrayProxy(Ruby runtime, RubyClass klass, IRubyObject ptr, long offset, Type.Array type, MemoryOp aio) {
+            super(runtime, klass);
+            this.ptr = ((AbstractMemory) ptr).slice(runtime, offset);
+            this.aio = aio;
+            this.componentType = type.getComponentType();
+        }
+
+        private long getOffset(int index) {
+            if (index < 0) {
+                throw getRuntime().newIndexError("index " + index + " out of bounds");
+            }
+
+            return (long) (index * componentType.getNativeSize());
+        }
+
+
+        @JRubyMethod(name = "[]")
+        public IRubyObject get(ThreadContext context, IRubyObject index) {
+            return aio.get(context, ptr, getOffset(Util.int32Value(index)));
+        }
+
+        @JRubyMethod(name = "[]=")
+        public IRubyObject put(ThreadContext context, IRubyObject index, IRubyObject value) {
+            aio.put(context, ptr, getOffset(Util.int32Value(index)), value);
+            return value;
+        }
+
+        @JRubyMethod(name = { "to_ptr" })
+        public IRubyObject to_ptr(ThreadContext context) {
+            return ptr;
+        }
+    }
+
     /**
      * Primitive (byte, short, int, long, float, double) types are all handled by
      * a PrimitiveMember type.
@@ -1384,9 +1440,13 @@ public final class StructLayout extends Type {
         public IRubyObject get(ThreadContext context, StructLayout.Storage cache, Member m, AbstractMemory ptr) {
             IRubyObject s = cache.getCachedValue(m);
             if (s == null) {
-                s = isCharArray()
+                if (isVariableLength()) {
+                    s = new VariableLengthArrayProxy(context.runtime, ptr, m.offset, arrayType, op);
+                } else {
+                    s = isCharArray()
                         ? new StructLayout.CharArrayProxy(context.runtime, ptr, m.offset, arrayType, op)
                         : new StructLayout.ArrayProxy(context.runtime, ptr, m.offset, arrayType, op);
+                }
                 cache.putCachedValue(m, s);
             }
 
@@ -1396,6 +1456,10 @@ public final class StructLayout extends Type {
         private final boolean isCharArray() {
             return arrayType.getComponentType().nativeType == NativeType.CHAR
                     || arrayType.getComponentType().nativeType == NativeType.UCHAR;
+        }
+
+        private boolean isVariableLength() {
+            return arrayType.length() < 1;
         }
 
 

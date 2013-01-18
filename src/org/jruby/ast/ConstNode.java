@@ -96,7 +96,7 @@ public class ConstNode extends Node implements INameNode {
 
     @Override
     public RubyString definition(Ruby runtime, ThreadContext context, IRubyObject self, Block aBlock) {
-        return context.getConstantDefined(name) ? runtime.getDefinedMessage(DefinedMessage.CONSTANT) : null;
+        return context.getCurrentStaticScope().isConstantDefined(name) ? runtime.getDefinedMessage(DefinedMessage.CONSTANT) : null;
     }
     
     public IRubyObject getValue(ThreadContext context) {
@@ -111,8 +111,8 @@ public class ConstNode extends Node implements INameNode {
     
     public IRubyObject reCache(ThreadContext context, String name) {
         Object newGeneration = context.runtime.getConstantInvalidator().getData();
-        IRubyObject value = context.getConstant(name);
-            
+        IRubyObject value = context.getCurrentStaticScope().getConstant(name);
+        
         cachedValue = value;
             
         if (value != null) generation = newGeneration;

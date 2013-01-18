@@ -34,7 +34,6 @@ import java.text.DateFormat;
 import java.text.DateFormatSymbols;
 import java.text.FieldPosition;
 import java.text.ParsePosition;
-import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.LinkedList;
@@ -391,12 +390,10 @@ public class RubyDateFormat extends DateFormat {
     }
 
     private int addOutputFormatter(String pattern, int index) {
-        if (ruby_1_9) {
-            TimeOutputFormatter outputFormatter = TimeOutputFormatter.getFormatter(pattern.substring(index - 1));
-            if (outputFormatter != null) {
-                index += outputFormatter.getFormatter().length();
-                compiledPattern.add(new Token(FORMAT_OUTPUT, outputFormatter));
-            }
+        TimeOutputFormatter outputFormatter = TimeOutputFormatter.getFormatter(pattern.substring(index - 1));
+        if (outputFormatter != null) {
+            index += outputFormatter.getFormatter().length();
+            compiledPattern.add(new Token(FORMAT_OUTPUT, outputFormatter));
         }
         return index;
     }
@@ -615,7 +612,7 @@ public class RubyDateFormat extends DateFormat {
                     if (ruby_1_9) value += nsec;
                     String width = ruby_1_9 ? "9" : "3";
                     if (formatter != null) width = formatter.getFormatter();
-                    output = formatTruncate(String.valueOf(value), Integer.valueOf(width), "0");
+                    output = String.format("%0" + width + "d", value).substring(0, Integer.valueOf(width));
                     formatter = null; // we are done with this formatter
                     break;
                 case FORMAT_WEEKYEAR:
@@ -651,26 +648,5 @@ public class RubyDateFormat extends DateFormat {
      */
     public Date parse(String source, ParsePosition pos) {
         throw new UnsupportedOperationException();
-    }
-    
-    /**
-     * Return the String obtained by truncating orig to the first len characters
-     * 
-     * @param orig Original string
-     * @param len Maximum length for the returned String
-     * @return String thus obtained
-     */
-    private String formatTruncate(String orig, int len, String pad) {
-        if (len == 0) return "";
-        if (orig.length() > len) {
-            return orig.substring(0, len);
-        } else {
-            StringBuilder sb = new StringBuilder(len);
-            sb.append(orig);
-            while (sb.length() < len) {
-                sb = sb.append(pad);
-            }
-            return sb.toString().substring(0,len);
-        }
     }
 }

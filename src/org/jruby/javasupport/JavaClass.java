@@ -61,6 +61,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
+import org.jcodings.Encoding;
 
 import org.jruby.Ruby;
 import org.jruby.RubyArray;
@@ -81,6 +82,7 @@ import org.jruby.java.addons.ArrayJavaAddons;
 import org.jruby.java.proxies.ArrayJavaProxy;
 import org.jruby.java.invokers.ConstructorInvoker;
 import org.jruby.java.proxies.ConcreteJavaProxy;
+import org.jruby.java.util.ArrayUtils;
 import org.jruby.javasupport.util.RuntimeHelpers;
 import org.jruby.runtime.Arity;
 import org.jruby.runtime.Block;
@@ -368,10 +370,13 @@ public class JavaClass extends JavaObject {
             }
         }
 
-        // modified only by addMethod; no synchronization required
         @Override
         boolean hasLocalMethod () {
             return haveLocalMethod;
+        }
+
+        void setLocalMethod(boolean b) {
+            haveLocalMethod = b;
         }
     }
 
@@ -718,6 +723,10 @@ public class JavaClass extends JavaObject {
         // flag the class as a Java class proxy.
         proxy.setJavaProxy(true);
         proxy.getSingletonClass().setJavaProxy(true);
+
+        // set the Java class name and package
+        proxy.setBaseName(javaClass.getSimpleName());
+        proxy.setParent(Java.getJavaPackageModule(getRuntime(), javaClass.getPackage()));
         
         // FIXME: bit of a kludge here (non-interface classes assigned to both
         // class and module fields). simplifies proxy extender code, will go away
@@ -1026,11 +1035,23 @@ public class JavaClass extends JavaObject {
             }
         }
         for (Map.Entry<String, NamedInstaller> entry : state.instanceCallbacks.entrySet()) {
-            // no aliases for __method methods
-            if (entry.getKey().endsWith("__method")) continue;
-            
-            if (entry.getValue().type == NamedInstaller.INSTANCE_METHOD && entry.getValue().hasLocalMethod()) {
-                assignAliases((MethodInstaller) entry.getValue(), state.instanceNames);
+            if (entry.getValue().type == NamedInstaller.INSTANCE_METHOD) {
+                MethodInstaller methodInstaller = (MethodInstaller)entry.getValue();
+
+                // no aliases for __method methods
+                if (entry.getKey().endsWith("__method")) continue;
+
+                if (methodInstaller.hasLocalMethod()) {
+                    assignAliases(methodInstaller, state.instanceNames);
+                }
+
+                // JRUBY-6967: Types with java.lang.Comparable were using Ruby Comparable#== instead of dispatching directly to
+                // java.lang.Object.equals. We force an alias here to ensure we always use equals.
+                if (entry.getKey().equals("equals")) {
+                    // we only install "local" methods, but need to force this so it will bind
+                    methodInstaller.setLocalMethod(true);
+                    methodInstaller.addAlias("==");
+                }
             }
         }
     }
@@ -1232,7 +1253,7 @@ public class JavaClass extends JavaObject {
     @JRubyMethod
     public RubyModule ruby_class() {
         // Java.getProxyClass deals with sync issues, so we won't duplicate the logic here
-        return Java.getProxyClass(getRuntime(), this);
+        return Java.getProxyClass(getRuntime(), javaClass());
     }
 
     @JRubyMethod(name = "public?")
@@ -1763,34 +1784,11 @@ public class JavaClass extends JavaObject {
     }
    
     public IRubyObject emptyJavaArray(ThreadContext context) {
-        JavaArray javaArray = new JavaArray(getRuntime(), Array.newInstance(javaClass(), 0));
-        RubyClass newProxyClass = (RubyClass)Java.get_proxy_class(javaArray, array_class());
-
-        ArrayJavaProxy proxy = new ArrayJavaProxy(context.runtime, newProxyClass);
-        proxy.dataWrapStruct(javaArray);
-        
-        return proxy;
+        return ArrayUtils.emptyJavaArrayDirect(context, javaClass());
     }
    
     public IRubyObject javaArraySubarray(ThreadContext context, JavaArray fromArray, int index, int size) {
-        int actualLength = Array.getLength(fromArray.getValue());
-        if (index >= actualLength) {
-            return context.runtime.getNil();
-        } else {
-            if (index + size > actualLength) {
-                size = actualLength - index;
-            }
-            
-            Object newArray = Array.newInstance(javaClass(), size);
-            JavaArray javaArray = new JavaArray(getRuntime(), newArray);
-            System.arraycopy(fromArray.getValue(), index, newArray, 0, size);
-            RubyClass newProxyClass = (RubyClass)Java.get_proxy_class(javaArray, array_class());
-
-            ArrayJavaProxy proxy = new ArrayJavaProxy(context.runtime, newProxyClass);
-            proxy.dataWrapStruct(javaArray);
-
-            return proxy;
-        }
+        return ArrayUtils.javaArraySubarrayDirect(context, getValue(), index, size);
     }
    
     /**
@@ -1804,18 +1802,7 @@ public class JavaClass extends JavaObject {
      * @return
      */
     public IRubyObject concatArrays(ThreadContext context, JavaArray original, JavaArray additional) {
-        int oldLength = (int)original.length().getLongValue();
-        int addLength = (int)additional.length().getLongValue();
-        Object newArray = Array.newInstance(javaClass(), oldLength + addLength);
-        JavaArray javaArray = new JavaArray(getRuntime(), newArray);
-        System.arraycopy(original.getValue(), 0, newArray, 0, oldLength);
-        System.arraycopy(additional.getValue(), 0, newArray, oldLength, addLength);
-        RubyClass newProxyClass = (RubyClass)Java.get_proxy_class(javaArray, array_class());
-
-        ArrayJavaProxy proxy = new ArrayJavaProxy(context.runtime, newProxyClass);
-        proxy.dataWrapStruct(javaArray);
-
-        return proxy;
+        return ArrayUtils.concatArraysDirect(context, original.getValue(), additional.getValue());
     }
    
     /**
@@ -1827,22 +1814,7 @@ public class JavaClass extends JavaObject {
      * @return
      */
     public IRubyObject concatArrays(ThreadContext context, JavaArray original, IRubyObject additional) {
-        int oldLength = (int)original.length().getLongValue();
-        int addLength = (int)((RubyFixnum)RuntimeHelpers.invoke(context, additional, "length")).getLongValue();
-        Object newArray = Array.newInstance(javaClass(), oldLength + addLength);
-        JavaArray javaArray = new JavaArray(getRuntime(), newArray);
-        System.arraycopy(original.getValue(), 0, newArray, 0, oldLength);
-        RubyClass newProxyClass = (RubyClass)Java.get_proxy_class(javaArray, array_class());
-        ArrayJavaProxy proxy = new ArrayJavaProxy(context.runtime, newProxyClass);
-        proxy.dataWrapStruct(javaArray);
-
-        Ruby runtime = context.runtime;
-        for (int i = 0; i < addLength; i++) {
-            RuntimeHelpers.invoke(context, proxy, "[]=", runtime.newFixnum(oldLength + i), 
-                    RuntimeHelpers.invoke(context, additional, "[]", runtime.newFixnum(i)));
-        }
-
-        return proxy;
+        return ArrayUtils.concatArraysDirect(context, original.getValue(), additional);
     }
 
     public IRubyObject javaArrayFromRubyArray(ThreadContext context, IRubyObject fromArray) {
@@ -1850,26 +1822,32 @@ public class JavaClass extends JavaObject {
         if (!(fromArray instanceof RubyArray)) {
             throw runtime.newTypeError(fromArray, runtime.getArray());
         }
+        
+        Object newArray = javaArrayFromRubyArrayDirect(context, fromArray);
+        
+        return new ArrayJavaProxy(runtime, Java.getProxyClassForObject(runtime, newArray), newArray, JavaUtil.getJavaConverter(javaClass()));
+    }
+
+    public Object javaArrayFromRubyArrayDirect(ThreadContext context, IRubyObject fromArray) {
+        Ruby runtime = context.runtime;
+        if (!(fromArray instanceof RubyArray)) {
+            throw runtime.newTypeError(fromArray, runtime.getArray());
+        }
         RubyArray rubyArray = (RubyArray)fromArray;
-        JavaArray javaArray = new JavaArray(getRuntime(), Array.newInstance(javaClass(), rubyArray.size()));
+        Object newArray = Array.newInstance(javaClass(), rubyArray.size());
         
         if (javaClass().isArray()) {
             // if it's an array of arrays, recurse with the component type
             for (int i = 0; i < rubyArray.size(); i++) {
                 JavaClass componentType = component_type();
-                IRubyObject wrappedComponentArray = componentType.javaArrayFromRubyArray(context, rubyArray.eltInternal(i));
-                javaArray.setWithExceptionHandling(i, JavaUtil.unwrapJavaObject(wrappedComponentArray));
+                Object componentArray = componentType.javaArrayFromRubyArrayDirect(context, rubyArray.eltInternal(i));
+                ArrayUtils.setWithExceptionHandlingDirect(runtime, newArray, i, componentArray);
             }
         } else {
-            ArrayJavaAddons.copyDataToJavaArray(context, rubyArray, javaArray);
+            ArrayUtils.copyDataToJavaArrayDirect(context, rubyArray, newArray);
         }
         
-        RubyClass newProxyClass = (RubyClass)Java.get_proxy_class(javaArray, array_class());
-
-        ArrayJavaProxy proxy = new ArrayJavaProxy(runtime, newProxyClass);
-        proxy.dataWrapStruct(javaArray);
-        
-        return proxy;
+        return newArray;
     }
 
     @JRubyMethod

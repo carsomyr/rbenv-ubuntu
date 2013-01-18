@@ -81,6 +81,12 @@ public abstract class StaticScope implements Serializable {
     
     private DynamicScope dummyScope;
 
+    public enum Type {
+        LOCAL,
+        BLOCK,
+        EVAL
+    }
+
     /**
      * Construct a new static scope. The array of strings should all be the
      * interned versions, since several other optimizations depend on being
@@ -166,34 +172,50 @@ public abstract class StaticScope implements Serializable {
     }
 
     /* Note: Only used by compiler until it can use getConstant again or use some other refactoring */
-    public IRubyObject getConstantWithConstMissing(Ruby runtime, String internedName, RubyModule object) {
-        IRubyObject result = getConstantInner(runtime, internedName, object);
+    public IRubyObject getConstantWithConstMissing(String internedName) {
+        IRubyObject result = getConstantInner(internedName);
 
         // If we could not find the constant from cref..then try getting from inheritence hierarchy
         return result == null ? cref.getConstant(internedName) : result;        
     }
+
+    public boolean isConstantDefined(String internedName) {
+        return getConstant(internedName) != null;
+    }
     
-    public IRubyObject getConstant(Ruby runtime, String internedName, RubyModule object) {
-        IRubyObject result = getConstantInner(runtime, internedName, object);
+    public IRubyObject getConstant(String internedName) {
+        IRubyObject result = getConstantInner(internedName);
 
         // If we could not find the constant from cref..then try getting from inheritence hierarchy
         return result == null ? cref.getConstantNoConstMissing(internedName) : result;
     }
 
-    public IRubyObject getConstantInner(Ruby runtime, String internedName, RubyModule object) {
+    public IRubyObject getConstantInner(String internedName) {
         IRubyObject result = cref.fetchConstant(internedName);
 
         if (result != null) {
-            return result == RubyObject.UNDEF ? cref.resolveUndefConstant(runtime, internedName) : result;
+            return result == RubyObject.UNDEF ? cref.resolveUndefConstant(internedName) : result;
         }
 
-        return previousCRefScope == null ? null : previousCRefScope.getConstantInnerNoObject(runtime, internedName, object);
+        return previousCRefScope == null ? null : previousCRefScope.getConstantInnerNoObject(internedName);
     }
     
-    private IRubyObject getConstantInnerNoObject(Ruby runtime, String internedName, RubyModule object) {
+    private IRubyObject getConstantInnerNoObject(String internedName) {
         if (previousCRefScope == null) return null;
 
-        return getConstantInner(runtime, internedName, object);
+        return getConstantInner(internedName);
+    }
+
+    public IRubyObject setConstant(String internedName, IRubyObject result) {
+        RubyModule module;
+
+        if ((module = getModule()) != null) {
+            module.setConstant(internedName, result);
+            return result;
+        }
+
+        // TODO: wire into new exception handling mechanism
+        throw result.getRuntime().newTypeError("no class/module to define constant");
     }
     
     /**
@@ -414,4 +436,6 @@ public abstract class StaticScope implements Serializable {
             
         return buf.toString();
     }
+
+    public abstract Type getType();
 }

@@ -48,11 +48,11 @@ import org.jruby.runtime.DynamicScope;
 import org.jruby.runtime.Interpreted19Block;
 import org.jruby.runtime.InterpretedBlock;
 import org.jruby.runtime.MethodFactory;
-import org.jruby.runtime.MethodIndex;
 import org.jruby.runtime.RubyEvent;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.Visibility;
 import org.jruby.runtime.builtin.IRubyObject;
+import org.jruby.runtime.invokedynamic.MethodNames;
 import org.jruby.util.ByteList;
 import org.jruby.util.DefinedMessage;
 import org.jruby.util.TypeConverter;
@@ -61,7 +61,8 @@ import org.jruby.util.unsafe.UnsafeFactory;
 import java.util.ArrayList;
 import java.util.StringTokenizer;
 
-import static org.jruby.runtime.MethodIndex.OP_EQUAL;
+import static org.jruby.runtime.invokedynamic.MethodNames.EQL;
+import static org.jruby.runtime.invokedynamic.MethodNames.OP_EQUAL;
 
 /**
  * Helper methods which are called by the compiler.  Note: These will show no consumers, but
@@ -127,7 +128,7 @@ public class RuntimeHelpers {
         return invokeEqqForCaseWhen(callSite, context, caller, arg, receiver1, receiver2);
     }
 
-    public static boolean areAnyTrueForCaselessWhen(IRubyObject[] receivers) {
+    public static boolean invokeEqqForCaselessWhen(IRubyObject[] receivers) {
         for (int i = 0; i < receivers.length; i++) {
             if (receivers[i].isTrue()) return true;
         }
@@ -177,39 +178,29 @@ public class RuntimeHelpers {
     public static String buildBlockDescriptor19(
             String closureMethod,
             int arity,
-            StaticScope scope,
             String file,
             int line,
             boolean hasMultipleArgsHead,
             NodeType argsNodeId,
             String parameterList,
             ASTInspector inspector) {
-        return buildBlockDescriptor(closureMethod, arity, scope, file, line, hasMultipleArgsHead, argsNodeId, inspector) +
+        return buildBlockDescriptor(closureMethod, arity, file, line, hasMultipleArgsHead, argsNodeId, inspector) +
                 "," + parameterList;
     }
 
     public static String buildBlockDescriptor(
             String closureMethod,
             int arity,
-            StaticScope scope,
             String file,
             int line,
             boolean hasMultipleArgsHead,
             NodeType argsNodeId,
             ASTInspector inspector) {
-        
-        // build scope names string
-        StringBuffer scopeNames = new StringBuffer();
-        for (int i = 0; i < scope.getVariables().length; i++) {
-            if (i != 0) scopeNames.append(';');
-            scopeNames.append(scope.getVariables()[i]);
-        }
 
         // build descriptor string
         String descriptor =
                 closureMethod + ',' +
                 arity + ',' +
-                scopeNames + ',' +
                 hasMultipleArgsHead + ',' +
                 BlockBody.asArgumentType(argsNodeId) + ',' +
                 file + ',' +
@@ -219,31 +210,17 @@ public class RuntimeHelpers {
         return descriptor;
     }
     
-    public static String[][] parseBlockDescriptor(String descriptor) {
-        String[] firstSplit = descriptor.split(",");
-        String[] secondSplit;
-        if (firstSplit[2].length() == 0) {
-            secondSplit = new String[0];
-        } else {
-            secondSplit = firstSplit[2].split(";");
-            // FIXME: Big fat hack here, because scope names are expected to be interned strings by the parser
-            for (int i = 0; i < secondSplit.length; i++) {
-                secondSplit[i] = secondSplit[i].intern();
-            }
-        }
-        return new String[][] {firstSplit, secondSplit};
+    public static String[] parseBlockDescriptor(String descriptor) {
+        return descriptor.split(",");
     }
 
-    public static BlockBody createCompiledBlockBody(ThreadContext context, Object scriptObject, String descriptor) {
-        String[][] splitDesc = parseBlockDescriptor(descriptor);
-        String[] firstSplit = splitDesc[0];
-        String[] secondSplit = splitDesc[1];
-        return createCompiledBlockBody(context, scriptObject, firstSplit[0], Integer.parseInt(firstSplit[1]), secondSplit, Boolean.valueOf(firstSplit[3]), Integer.parseInt(firstSplit[4]), firstSplit[5], Integer.parseInt(firstSplit[6]), Boolean.valueOf(firstSplit[7]));
+    public static BlockBody createCompiledBlockBody(ThreadContext context, Object scriptObject, StaticScope scope, String descriptor) {
+        String[] firstSplit = parseBlockDescriptor(descriptor);
+        return createCompiledBlockBody(context, scriptObject, firstSplit[0], Integer.parseInt(firstSplit[1]), scope, Boolean.valueOf(firstSplit[2]), Integer.parseInt(firstSplit[3]), firstSplit[4], Integer.parseInt(firstSplit[5]), Boolean.valueOf(firstSplit[6]));
     }
     
-    public static BlockBody createCompiledBlockBody(ThreadContext context, Object scriptObject, String closureMethod, int arity, 
-            String[] staticScopeNames, boolean hasMultipleArgsHead, int argsNodeType, String file, int line, boolean light) {
-        StaticScope staticScope = context.runtime.getStaticScopeFactory().newBlockScope(context.getCurrentScope().getStaticScope(), staticScopeNames);
+    public static BlockBody createCompiledBlockBody(ThreadContext context, Object scriptObject, String closureMethod, int arity,
+            StaticScope staticScope, boolean hasMultipleArgsHead, int argsNodeType, String file, int line, boolean light) {
         staticScope.determineModule();
         
         if (light) {
@@ -259,16 +236,13 @@ public class RuntimeHelpers {
         }
     }
 
-    public static BlockBody createCompiledBlockBody19(ThreadContext context, Object scriptObject, String descriptor) {
-        String[][] splitDesc = parseBlockDescriptor(descriptor);
-        String[] firstSplit = splitDesc[0];
-        String[] secondSplit = splitDesc[1];
-        return createCompiledBlockBody19(context, scriptObject, firstSplit[0], Integer.parseInt(firstSplit[1]), secondSplit, Boolean.valueOf(firstSplit[3]), Integer.parseInt(firstSplit[4]), firstSplit[5], Integer.parseInt(firstSplit[6]), Boolean.valueOf(firstSplit[7]), firstSplit[8]);
+    public static BlockBody createCompiledBlockBody19(ThreadContext context, Object scriptObject, StaticScope scope, String descriptor) {
+        String[] firstSplit = parseBlockDescriptor(descriptor);
+        return createCompiledBlockBody19(context, scriptObject, firstSplit[0], Integer.parseInt(firstSplit[1]), scope, Boolean.valueOf(firstSplit[2]), Integer.parseInt(firstSplit[3]), firstSplit[4], Integer.parseInt(firstSplit[5]), Boolean.valueOf(firstSplit[6]), firstSplit[7]);
     }
 
     public static BlockBody createCompiledBlockBody19(ThreadContext context, Object scriptObject, String closureMethod, int arity,
-            String[] staticScopeNames, boolean hasMultipleArgsHead, int argsNodeType, String file, int line, boolean light, String parameterList) {
-        StaticScope staticScope = context.runtime.getStaticScopeFactory().newBlockScope(context.getCurrentScope().getStaticScope(), staticScopeNames);
+            StaticScope staticScope, boolean hasMultipleArgsHead, int argsNodeType, String file, int line, boolean light, String parameterList) {
         staticScope.determineModule();
 
         if (light) {
@@ -299,8 +273,7 @@ public class RuntimeHelpers {
     }
     
     public static IRubyObject runBeginBlock(ThreadContext context, IRubyObject self, String scopeString, CompiledBlockCallback callback) {
-        StaticScope staticScope = decodeBlockScope(context, scopeString);
-        staticScope.determineModule();
+        StaticScope staticScope = decodeScope(context, context.getCurrentStaticScope(), scopeString);
         
         context.preScopedBody(DynamicScope.newDynamicScope(staticScope, context.getCurrentScope()));
         
@@ -664,25 +637,19 @@ public class RuntimeHelpers {
         return (RubyArray) value;
     }
     
-    public static IRubyObject fetchClassVariable(ThreadContext context, Ruby runtime, 
+    public static IRubyObject fetchClassVariable(Ruby runtime, StaticScope scope,
             IRubyObject self, String name) {
-        RubyModule rubyClass = ASTInterpreter.getClassVariableBase(context, runtime);
+        RubyModule rubyClass = ASTInterpreter.getClassVariableBase(runtime, scope);
    
         if (rubyClass == null) rubyClass = self.getMetaClass();
 
         return rubyClass.getClassVar(name);
     }
     
-    @Deprecated
-    public static IRubyObject fastFetchClassVariable(ThreadContext context, Ruby runtime, 
-            IRubyObject self, String internedName) {
-        return fetchClassVariable(context, runtime, self, internedName);
-    }
-    
     public static IRubyObject getConstant(ThreadContext context, String internedName) {
         Ruby runtime = context.runtime;
 
-        return context.getCurrentScope().getStaticScope().getConstantWithConstMissing(runtime, internedName, runtime.getObject());
+        return context.getCurrentScope().getStaticScope().getConstantWithConstMissing(internedName);
     }
 
     public static IRubyObject nullToNil(IRubyObject value, ThreadContext context) {
@@ -702,9 +669,9 @@ public class RuntimeHelpers {
         return (RubyClass)rubyClass;
     }
     
-    public static RubyModule prepareClassNamespace(ThreadContext context, IRubyObject rubyModule) {
+    public static RubyModule prepareClassNamespace(ThreadContext context, StaticScope scope, IRubyObject rubyModule) {
         if (rubyModule == null || rubyModule.isNil()) {
-            rubyModule = context.getCurrentScope().getStaticScope().getModule();
+            rubyModule = scope.getModule();
 
             if (rubyModule == null) {
                 throw context.runtime.newTypeError("no outer class/module");
@@ -718,9 +685,9 @@ public class RuntimeHelpers {
         }
     }
     
-    public static IRubyObject setClassVariable(ThreadContext context, Ruby runtime, 
+    public static IRubyObject setClassVariable(Ruby runtime, StaticScope scope,
             IRubyObject self, String name, IRubyObject value) {
-        RubyModule rubyClass = ASTInterpreter.getClassVariableBase(context, runtime);
+        RubyModule rubyClass = ASTInterpreter.getClassVariableBase(runtime, scope);
    
         if (rubyClass == null) rubyClass = self.getMetaClass();
 
@@ -729,26 +696,15 @@ public class RuntimeHelpers {
         return value;
     }
     
-    @Deprecated
-    public static IRubyObject fastSetClassVariable(ThreadContext context, Ruby runtime, 
-            IRubyObject self, String internedName, IRubyObject value) {
-        return setClassVariable(context, runtime, self, internedName, value);
-    }
-    
-    public static IRubyObject declareClassVariable(ThreadContext context, Ruby runtime, IRubyObject self, String name, IRubyObject value) {
+    public static IRubyObject declareClassVariable(Ruby runtime, StaticScope scope, IRubyObject self, String name, IRubyObject value) {
         // FIXME: This isn't quite right; it shouldn't evaluate the value if it's going to throw the error
-        RubyModule rubyClass = ASTInterpreter.getClassVariableBase(context, runtime);
+        RubyModule rubyClass = ASTInterpreter.getClassVariableBase(runtime, scope);
    
         if (rubyClass == null) throw runtime.newTypeError("no class/module to define class variable");
         
         rubyClass.setClassVar(name, value);
    
         return value;
-    }
-    
-    @Deprecated
-    public static IRubyObject fastDeclareClassVariable(ThreadContext context, Ruby runtime, IRubyObject self, String internedName, IRubyObject value) {
-        return declareClassVariable(context, runtime, self, internedName, value);
     }
     
     public static void handleArgumentSizes(ThreadContext context, Ruby runtime, int given, int required, int opt, int rest) {
@@ -1003,7 +959,10 @@ public class RuntimeHelpers {
                 runtime.getException() == catchable ||
 
                 // rescue Object needs to catch Java exceptions
-                runtime.getObject() == catchable) {
+                runtime.getObject() == catchable ||
+
+                // rescue StandardError needs t= catch Java exceptions
+                runtime.getStandardError() == catchable) {
 
             if (throwable instanceof RaiseException) {
                 return isExceptionHandled(((RaiseException)throwable).getException(), catchable, context).isTrue();
@@ -1038,9 +997,14 @@ public class RuntimeHelpers {
         if (currentThrowable instanceof RaiseException) {
             return isExceptionHandled(((RaiseException)currentThrowable).getException(), throwables, context);
         } else {
-            for (int i = 0; i < throwables.length; i++) {
-                if (checkJavaException(currentThrowable, throwables[i], context)) {
-                    return context.runtime.getTrue();
+            if (throwables.length == 0) {
+                // no rescue means StandardError, which rescues Java exceptions
+                return context.runtime.getTrue();
+            } else {
+                for (int i = 0; i < throwables.length; i++) {
+                    if (checkJavaException(currentThrowable, throwables[i], context)) {
+                        return context.runtime.getTrue();
+                    }
                 }
             }
 
@@ -1233,26 +1197,31 @@ public class RuntimeHelpers {
         return context.runtime.getFalse();
     }
     
-    public static IRubyObject setConstantInModule(IRubyObject value, IRubyObject module, String name, ThreadContext context) {
-        return context.setConstantInModule(name, module, value);
+    public static IRubyObject setConstantInModule(ThreadContext context, String name, IRubyObject value, IRubyObject module) {
+        if (!(module instanceof RubyModule)) {
+            throw context.runtime.newTypeError(module.toString() + " is not a class/module");
+        }
+        ((RubyModule)module).setConstant(name, value);
+
+        return value;
     }
 
     public static IRubyObject setConstantInCurrent(IRubyObject value, ThreadContext context, String name) {
-        return context.setConstantInCurrent(name, value);
+        return context.getCurrentStaticScope().setConstant(name, value);
     }
-    
+
     public static IRubyObject retryJump() {
         throw JumpException.RETRY_JUMP;
     }
-    
+
     public static IRubyObject redoJump() {
         throw JumpException.REDO_JUMP;
     }
-    
+
     public static IRubyObject redoLocalJumpError(Ruby runtime) {
         throw runtime.newLocalJumpError(RubyLocalJumpError.Reason.REDO, runtime.getNil(), "unexpected redo");
     }
-    
+
     public static IRubyObject nextJump(IRubyObject value) {
         throw new JumpException.NextJump(value);
     }
@@ -1504,6 +1473,27 @@ public class RuntimeHelpers {
         hash.fastASetCheckString(runtime, key3, value3);
         return hash;
     }
+
+    public static RubyHash constructSmallHash(Ruby runtime, IRubyObject key1, IRubyObject value1) {
+        RubyHash hash = RubyHash.newSmallHash(runtime);
+        hash.fastASetSmallCheckString(runtime, key1, value1);
+        return hash;
+    }
+
+    public static RubyHash constructSmallHash(Ruby runtime, IRubyObject key1, IRubyObject value1, IRubyObject key2, IRubyObject value2) {
+        RubyHash hash = RubyHash.newSmallHash(runtime);
+        hash.fastASetSmallCheckString(runtime, key1, value1);
+        hash.fastASetSmallCheckString(runtime, key2, value2);
+        return hash;
+    }
+
+    public static RubyHash constructSmallHash(Ruby runtime, IRubyObject key1, IRubyObject value1, IRubyObject key2, IRubyObject value2, IRubyObject key3, IRubyObject value3) {
+        RubyHash hash = RubyHash.newHash(runtime);
+        hash.fastASetSmallCheckString(runtime, key1, value1);
+        hash.fastASetSmallCheckString(runtime, key2, value2);
+        hash.fastASetSmallCheckString(runtime, key3, value3);
+        return hash;
+    }
     
     public static RubyHash constructHash19(Ruby runtime, IRubyObject key1, IRubyObject value1) {
         RubyHash hash = RubyHash.newHash(runtime);
@@ -1523,6 +1513,27 @@ public class RuntimeHelpers {
         hash.fastASetCheckString19(runtime, key1, value1);
         hash.fastASetCheckString19(runtime, key2, value2);
         hash.fastASetCheckString19(runtime, key3, value3);
+        return hash;
+    }
+
+    public static RubyHash constructSmallHash19(Ruby runtime, IRubyObject key1, IRubyObject value1) {
+        RubyHash hash = RubyHash.newSmallHash(runtime);
+        hash.fastASetSmallCheckString19(runtime, key1, value1);
+        return hash;
+    }
+
+    public static RubyHash constructSmallHash19(Ruby runtime, IRubyObject key1, IRubyObject value1, IRubyObject key2, IRubyObject value2) {
+        RubyHash hash = RubyHash.newSmallHash(runtime);
+        hash.fastASetSmallCheckString19(runtime, key1, value1);
+        hash.fastASetSmallCheckString19(runtime, key2, value2);
+        return hash;
+    }
+
+    public static RubyHash constructSmallHash19(Ruby runtime, IRubyObject key1, IRubyObject value1, IRubyObject key2, IRubyObject value2, IRubyObject key3, IRubyObject value3) {
+        RubyHash hash = RubyHash.newSmallHash(runtime);
+        hash.fastASetSmallCheckString19(runtime, key1, value1);
+        hash.fastASetSmallCheckString19(runtime, key2, value2);
+        hash.fastASetSmallCheckString19(runtime, key3, value3);
         return hash;
     }
 
@@ -1570,14 +1581,18 @@ public class RuntimeHelpers {
         return RubyString.newStringShared(context.runtime, value);
     }
     
-    public static void preLoad(ThreadContext context, String[] varNames) {
+    public static StaticScope preLoad(ThreadContext context, String[] varNames) {
         StaticScope staticScope = context.runtime.getStaticScopeFactory().newLocalScope(null, varNames);
         preLoadCommon(context, staticScope, false);
+
+        return staticScope;
     }
 
-    public static void preLoad(ThreadContext context, String scopeString, boolean wrap) {
-        StaticScope staticScope = decodeRootScope(context, scopeString);
+    public static StaticScope preLoad(ThreadContext context, String scopeString, boolean wrap) {
+        StaticScope staticScope = decodeScope(context, null, scopeString);
         preLoadCommon(context, staticScope, wrap);
+
+        return staticScope;
     }
 
     public static void preLoadCommon(ThreadContext context, StaticScope staticScope, boolean wrap) {
@@ -2008,7 +2023,9 @@ public class RuntimeHelpers {
     }
 
     public static String encodeScope(StaticScope scope) {
-        StringBuilder namesBuilder = new StringBuilder();
+        StringBuilder namesBuilder = new StringBuilder(scope.getType().name());
+
+        namesBuilder.append(',');
 
         boolean first = true;
         for (String name : scope.getVariables()) {
@@ -2027,47 +2044,56 @@ public class RuntimeHelpers {
         return namesBuilder.toString();
     }
 
+    @Deprecated
     public static StaticScope decodeRootScope(ThreadContext context, String scopeString) {
-        String[][] decodedScope = decodeScopeDescriptor(scopeString);
-        StaticScope scope = context.runtime.getStaticScopeFactory().newLocalScope(null, decodedScope[1]);
-        setAritiesFromDecodedScope(scope, decodedScope[0]);
-        return scope;
+        return decodeScope(context, null, scopeString);
     }
 
+    @Deprecated
     public static StaticScope decodeLocalScope(ThreadContext context, String scopeString) {
-        String[][] decodedScope = decodeScopeDescriptor(scopeString);
-        StaticScope scope = context.runtime.getStaticScopeFactory().newLocalScope(context.getCurrentScope().getStaticScope(), decodedScope[1]);
-        setAritiesFromDecodedScope(scope, decodedScope[0]);
-        return scope;
+        return decodeScope(context, context.getCurrentStaticScope(), scopeString);
     }
 
+    @Deprecated
     public static StaticScope decodeLocalScope(ThreadContext context, StaticScope parent, String scopeString) {
-        String[][] decodedScope = decodeScopeDescriptor(scopeString);
-        StaticScope scope = context.runtime.getStaticScopeFactory().newLocalScope(parent, decodedScope[1]);
-        scope.determineModule();
-        setAritiesFromDecodedScope(scope, decodedScope[0]);
-        return scope;
+        return decodeScope(context, parent, scopeString);
     }
 
+    @Deprecated
     public static StaticScope decodeBlockScope(ThreadContext context, String scopeString) {
+        return decodeScope(context, context.getCurrentStaticScope(), scopeString);
+    }
+
+    public static StaticScope decodeScope(ThreadContext context, StaticScope parent, String scopeString) {
         String[][] decodedScope = decodeScopeDescriptor(scopeString);
-        StaticScope scope = context.runtime.getStaticScopeFactory().newBlockScope(context.getCurrentScope().getStaticScope(), decodedScope[1]);
+        StaticScope scope = null;
+        switch (StaticScope.Type.valueOf(decodedScope[0][0])) {
+            case BLOCK:
+                scope = context.runtime.getStaticScopeFactory().newBlockScope(parent, decodedScope[1]);
+                break;
+            case EVAL:
+                scope = context.runtime.getStaticScopeFactory().newEvalScope(parent, decodedScope[1]);
+                break;
+            case LOCAL:
+                scope = context.runtime.getStaticScopeFactory().newLocalScope(parent, decodedScope[1]);
+                break;
+        }
         setAritiesFromDecodedScope(scope, decodedScope[0]);
         return scope;
     }
 
     private static String[][] decodeScopeDescriptor(String scopeString) {
         String[] scopeElements = scopeString.split(",");
-        String[] scopeNames = scopeElements[0].length() == 0 ? new String[0] : getScopeNames(scopeElements[0]);
+        String[] scopeNames = scopeElements[1].length() == 0 ? new String[0] : getScopeNames(scopeElements[1]);
         return new String[][] {scopeElements, scopeNames};
     }
 
     private static void setAritiesFromDecodedScope(StaticScope scope, String[] scopeElements) {
-        scope.setArities(Integer.parseInt(scopeElements[1]), Integer.parseInt(scopeElements[2]), Integer.parseInt(scopeElements[3]));
+        scope.setArities(Integer.parseInt(scopeElements[2]), Integer.parseInt(scopeElements[3]), Integer.parseInt(scopeElements[4]));
     }
 
-    public static StaticScope createScopeForClass(ThreadContext context, String scopeString) {
-        StaticScope scope = decodeLocalScope(context, scopeString);
+    public static StaticScope decodeScopeAndDetermineModule(ThreadContext context, StaticScope parent, String scopeString) {
+        StaticScope scope = decodeScope(context, parent, scopeString);
         scope.determineModule();
 
         return scope;
@@ -2302,6 +2328,21 @@ public class RuntimeHelpers {
         Ruby runtime = context.runtime;
         if (a == b) return runtime.getTrue();
         IRubyObject res = invokedynamic(context, a, OP_EQUAL, b);
+        return runtime.newBoolean(res.isTrue());
+    }
+
+    /**
+     * Equivalent to rb_eql in MRI
+     *
+     * @param context
+     * @param a
+     * @param b
+     * @return
+     */
+    public static RubyBoolean rbEql(ThreadContext context, IRubyObject a, IRubyObject b) {
+        Ruby runtime = context.runtime;
+        if (a == b) return runtime.getTrue();
+        IRubyObject res = invokedynamic(context, a, EQL, b);
         return runtime.newBoolean(res.isTrue());
     }
 
@@ -2652,17 +2693,17 @@ public class RuntimeHelpers {
 
         return definition;
     }
-    
-    public static IRubyObject invokedynamic(ThreadContext context, IRubyObject self, int index) {
+
+    public static IRubyObject invokedynamic(ThreadContext context, IRubyObject self, MethodNames method) {
         RubyClass metaclass = self.getMetaClass();
-        String name = MethodIndex.METHOD_NAMES[index];
-        return getMethodCached(context, metaclass, index, name).call(context, self, metaclass, name);
+        String name = method.realName();
+        return getMethodCached(context, metaclass, method.ordinal(), name).call(context, self, metaclass, name);
     }
-    
-    public static IRubyObject invokedynamic(ThreadContext context, IRubyObject self, int index, IRubyObject arg0) {
+
+    public static IRubyObject invokedynamic(ThreadContext context, IRubyObject self, MethodNames method, IRubyObject arg0) {
         RubyClass metaclass = self.getMetaClass();
-        String name = MethodIndex.METHOD_NAMES[index];
-        return getMethodCached(context, metaclass, index, name).call(context, self, metaclass, name, arg0);
+        String name = method.realName();
+        return getMethodCached(context, metaclass, method.ordinal(), name).call(context, self, metaclass, name, arg0);
     }
     
     private static DynamicMethod getMethodCached(ThreadContext context, RubyClass metaclass, int index, String name) {
@@ -2762,11 +2803,29 @@ public class RuntimeHelpers {
         return target;
     }
 
+    public static RubyString shortcutAppend18(RubyString string, IRubyObject object) {
+        if (object instanceof RubyFixnum || object instanceof RubyFloat || object instanceof RubySymbol) {
+            return string.append(object);
+        } else {
+            return string.append(object.asString());
+        }
+    }
+
     public static RubyString shortcutAppend(RubyString string, IRubyObject object) {
         if (object instanceof RubyFixnum || object instanceof RubyFloat || object instanceof RubySymbol) {
             return string.append19(object);
         } else {
             return string.append19(object.asString());
         }
+    }
+
+    @Deprecated
+    public static IRubyObject invokedynamic(ThreadContext context, IRubyObject self, int index) {
+        return invokedynamic(context, self, MethodNames.values()[index]);
+    }
+
+    @Deprecated
+    public static IRubyObject invokedynamic(ThreadContext context, IRubyObject self, int index, IRubyObject arg0) {
+        return invokedynamic(context, self, MethodNames.values()[index], arg0);
     }
 }

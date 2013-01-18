@@ -43,9 +43,14 @@
 package org.jruby.ast;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.jruby.Ruby;
 import org.jruby.RubyArray;
+import org.jruby.RubyHash;
+import org.jruby.RubySymbol;
+import org.jruby.ast.types.INameNode;
 import org.jruby.ast.visitor.NodeVisitor;
 import org.jruby.javasupport.util.RuntimeHelpers;
 import org.jruby.lexer.yacc.ISourcePosition;
@@ -75,6 +80,7 @@ public class ArgsNode extends Node {
     private final int requiredArgsCount;
     protected final boolean hasOptArgs;
     protected final boolean hasMasgnArgs;
+    protected final boolean hasKwargs;
     protected int maxArgsCount;
     protected final boolean isSimple;
 
@@ -82,20 +88,40 @@ public class ArgsNode extends Node {
     private final ListNode post;
     private final int postCount;
     private final int postIndex;
+
+    // Only in ruby 2.0 methods
+    private final ListNode keywords;
+    private final KeywordRestArgNode keyRest;
+
     /**
+     * Construct a new ArgsNode with no keyword arguments.
      *
-     * @param optionalArguments  Node describing the optional arguments
-     * 				This Block will contain assignments to locals (LAsgnNode)
-     * @param restArguments  index of the rest argument in the local table
-     * 				(the array argument prefixed by a * which collects
-     * 				all additional params)
-     * 				or -1 if there is none.
-     * @param argsCount number of regular arguments
-     * @param restArgNode The rest argument (*args).
-     * @param blockArgNode An optional block argument (&amp;arg).
-     **/
+     * @param position
+     * @param pre
+     * @param optionalArguments
+     * @param rest
+     * @param post
+     * @param blockArgNode
+     */
     public ArgsNode(ISourcePosition position, ListNode pre, ListNode optionalArguments,
-            RestArgNode rest, ListNode post, BlockArgNode blockArgNode) {
+                    RestArgNode rest, ListNode post, BlockArgNode blockArgNode) {
+        this(position, pre, optionalArguments, rest, post, null, null, blockArgNode);
+    }
+
+    /**
+     * Construct a new ArgsNode with keyword arguments.
+     *
+     * @param position
+     * @param pre
+     * @param optionalArguments
+     * @param rest
+     * @param post
+     * @param keywords
+     * @param keyRest
+     * @param blockArgNode
+     */
+    public ArgsNode(ISourcePosition position, ListNode pre, ListNode optionalArguments,
+            RestArgNode rest, ListNode post, ListNode keywords, KeywordRestArgNode keyRest, BlockArgNode blockArgNode) {
         super(position);
 
         this.pre = pre;
@@ -108,15 +134,18 @@ public class ArgsNode extends Node {
         this.restArg = rest == null ? -1 : rest.getIndex();
         this.restArgNode = rest;
         this.blockArgNode = blockArgNode;
+        this.keywords = keywords;
+        this.keyRest = keyRest;
         this.requiredArgsCount = preCount + postCount;
         this.hasOptArgs = getOptArgs() != null;
         this.hasMasgnArgs = hasMasgnArgs();
+        this.hasKwargs = keywords != null || keyRest != null;
         this.maxArgsCount = getRestArg() >= 0 ? -1 : getRequiredArgsCount() + getOptionalArgsCount();
         this.arity = calculateArity();
 
-        this.isSimple = !(hasMasgnArgs || hasOptArgs || restArg >= 0 || postCount > 0);
+        this.isSimple = !(hasMasgnArgs || hasOptArgs || restArg >= 0 || postCount > 0 || keywords != null);
     }
-
+    
     private int getPostCount(int preCount, int optArgCount, RestArgNode rest) {
         // Simple-case: If we have a rest we know where it is
         if (rest != null) return rest.getIndex() + 1;
@@ -234,6 +263,14 @@ public class ArgsNode extends Node {
         return preCount;
     }
 
+    public ListNode getKeywords() {
+        return keywords;
+    }
+
+    public KeywordRestArgNode getKeyRest() {
+        return keyRest;
+    }
+
     public void prepare(ThreadContext context, Ruby runtime, IRubyObject self, IRubyObject[] args, Block block) {
         DynamicScope scope = context.getCurrentScope();
 
@@ -248,6 +285,7 @@ public class ArgsNode extends Node {
 
         // optArgs and restArgs require more work, so isolate them and ArrayList creation here
         if (hasOptArgs || restArg != -1) prepareOptOrRestArgs(context, runtime, scope, self, args);
+        if (hasKwargs) assignKwargs(args, runtime, context, scope, self);
         if (getBlock() != null) processBlockArg(scope, runtime, block);
     }
 
@@ -398,11 +436,11 @@ public class ArgsNode extends Node {
     }
 
     public void checkArgCount(Ruby runtime, int argsLength) {
-        Arity.checkArgumentCount(runtime, argsLength, requiredArgsCount, maxArgsCount);
+        Arity.checkArgumentCount(runtime, argsLength, requiredArgsCount, maxArgsCount, hasKwargs);
     }
 
     public void checkArgCount(Ruby runtime, String name, int argsLength) {
-        Arity.checkArgumentCount(runtime, name, argsLength, requiredArgsCount, maxArgsCount);
+        Arity.checkArgumentCount(runtime, name, argsLength, requiredArgsCount, maxArgsCount, hasKwargs);
     }
 
     protected void prepareOptOrRestArgs(ThreadContext context, Ruby runtime, DynamicScope scope,
@@ -443,12 +481,70 @@ public class ArgsNode extends Node {
         return givenArgsCount;
     }
 
+    protected void assignKwargs(IRubyObject[] args, Ruby runtime, ThreadContext context, DynamicScope scope, IRubyObject self) {
+        if (args.length > 0) {
+            if (args[args.length - 1] instanceof RubyHash) {
+                RubyHash keyValues = (RubyHash)args[args.length - 1];
+
+                if (keywords != null) {
+                    for (Node knode : keywords.childNodes()) {
+                        KeywordArgNode kwarg = (KeywordArgNode)knode;
+                        LocalAsgnNode kasgn = (LocalAsgnNode)kwarg.getAssignable();
+                        String name = kasgn.getName();
+                        RubySymbol sym = runtime.newSymbol(name);
+
+                        if (keyValues.op_aref(context, sym).isNil()) {
+                            kasgn.interpret(runtime, context, self, Block.NULL_BLOCK);
+                        } else {
+                            IRubyObject value = keyValues.delete(context, sym, Block.NULL_BLOCK);
+                            scope.setValue(kasgn.getIndex(), value, kasgn.getDepth());
+                        }
+                    }
+                }
+
+                if (keyRest == null && !keyValues.isEmpty()) {
+                    throw runtime.newArgumentError("unknown keyword: " + keyValues.directKeySet().iterator().next());
+                }
+
+                if (keyRest != null) {
+                    LocalAsgnNode krestAsgn = (LocalAsgnNode)keyRest.getVariable();
+                    scope.setValue(krestAsgn.getIndex(), keyValues, krestAsgn.getDepth());
+                }
+                return;
+            }
+        }
+
+        if (keywords != null) {
+            for (Node knode : keywords.childNodes()) {
+                KeywordArgNode kwarg = (KeywordArgNode)knode;
+                LocalAsgnNode kasgn = (LocalAsgnNode)kwarg.getAssignable();
+
+                kasgn.interpret(runtime, context, self, Block.NULL_BLOCK);
+            }
+        }
+
+        if (keyRest != null) {
+            LocalAsgnNode krestAsgn = (LocalAsgnNode)keyRest.getVariable();
+            krestAsgn.interpret(runtime, context, self, Block.NULL_BLOCK);
+        }
+    }
+
     protected void processBlockArg(DynamicScope scope, Ruby runtime, Block block) {
         scope.setValue(getBlock().getCount(), RuntimeHelpers.processBlockArgument(runtime, block), 0);
     }
 
     public List<Node> childNodes() {
-        if (post != null) return Node.createList(pre, optArgs, restArgNode, post, blockArgNode);
+        if (post != null) {
+            if (keywords != null) {
+                return Node.createList(pre, optArgs, restArgNode, post, keywords, keyRest, blockArgNode);
+            }
+
+            return Node.createList(pre, optArgs, restArgNode, post, blockArgNode);
+        }
+
+        if (keywords != null) {
+            return Node.createList(pre, optArgs, restArgNode, keywords, keyRest, blockArgNode);
+        }
 
         return Node.createList(pre, optArgs, restArgNode, blockArgNode);
     }

@@ -60,6 +60,7 @@ module FFI
     LIBC = FFI::Platform::LIBC
 
     def ffi_lib(*names)
+      raise LoadError.new("library names list must not be empty") if names.empty?
       lib_flags = defined?(@ffi_lib_flags) ? @ffi_lib_flags : FFI::DynamicLibrary::RTLD_LAZY | FFI::DynamicLibrary::RTLD_LOCAL
       ffi_libs = names.map do |name|
         if name == FFI::CURRENT_PROCESS
@@ -138,7 +139,7 @@ module FFI
 
 
       # Convert :foo to the native type
-      arg_types.map! { |e| find_type(e) }
+      arg_types = arg_types.map { |e| find_type(e) }
       options = Hash.new
       options[:convention] = defined?(@ffi_convention) ? @ffi_convention : :default
       options[:type_map] = defined?(@ffi_typedefs) ? @ffi_typedefs : nil
@@ -225,11 +226,13 @@ module FFI
         [ nil, args[0], args[1] ]
       end
 
+      native_params = params.map { |e| find_type(e) }
+      raise ArgumentError, "callbacks cannot have variadic parameters" if native_params.include?(FFI::Type::VARARGS)
       options = Hash.new
       options[:convention] = defined?(@ffi_convention) ? @ffi_convention : :default
       options[:enums] = defined?(@ffi_enum_map) ? @ffi_enum_map : nil
 
-      cb = FFI::CallbackInfo.new(find_type(ret), params.map { |e| find_type(e) }, options)
+      cb = FFI::CallbackInfo.new(find_type(ret), native_params, options)
 
       # Add to the symbol -> type map (unless there was no name)
       unless name.nil?

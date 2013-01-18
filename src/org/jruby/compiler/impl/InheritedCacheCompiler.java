@@ -98,6 +98,13 @@ public class InheritedCacheCompiler implements CacheCompiler {
         this.scriptCompiler = scriptCompiler;
     }
 
+    public int reserveStaticScope() {
+        int index = scopeCount;
+        scopeCount++;
+
+        return index;
+    }
+
     public int cacheStaticScope(BaseBodyCompiler method, StaticScope scope) {
         String scopeString = RuntimeHelpers.encodeScope(scope);
         
@@ -107,25 +114,28 @@ public class InheritedCacheCompiler implements CacheCompiler {
         // retrieve scope from scopes array
         method.loadThis();
         method.loadThreadContext();
+        method.loadStaticScope();
         method.method.ldc(scopeString);
         if (index < AbstractScript.NUMBERED_SCOPE_COUNT) {
             // use numbered access method
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getScope" + index, sig(StaticScope.class, ThreadContext.class, String.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getScope" + index, sig(StaticScope.class, ThreadContext.class, StaticScope.class, String.class));
         } else {
             method.method.pushInt(index);
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getScope", sig(StaticScope.class, ThreadContext.class, String.class, int.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getScope", sig(StaticScope.class, ThreadContext.class, StaticScope.class, String.class, int.class));
         }
 
         return index;
     }
     
     public void loadStaticScope(BaseBodyCompiler method, int index) {
+        method.loadThis();
+
         if (scopeCount < AbstractScript.NUMBERED_SCOPE_COUNT) {
             // use numbered access method
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getScope" + index, sig(StaticScope.class, ThreadContext.class, String.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getScope" + index, sig(StaticScope.class));
         } else {
             method.method.pushInt(index);
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getScope", sig(StaticScope.class, ThreadContext.class, String.class, int.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getScope", sig(StaticScope.class, int.class));
         }
     }
     
@@ -304,26 +314,33 @@ public class InheritedCacheCompiler implements CacheCompiler {
     public void cacheConstant(BaseBodyCompiler method, String constantName) {
         method.loadThis();
         method.loadThreadContext();
+        method.loadStaticScope();
         method.method.ldc(constantName);
         if (inheritedConstantCount < AbstractScript.NUMBERED_CONSTANT_COUNT) {
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getConstant" + inheritedConstantCount, sig(IRubyObject.class, ThreadContext.class, String.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getConstant" + inheritedConstantCount, sig(IRubyObject.class, ThreadContext.class, StaticScope.class, String.class));
         } else {
             method.method.pushInt(inheritedConstantCount);
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getConstant", sig(IRubyObject.class, ThreadContext.class, String.class, int.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getConstant", sig(IRubyObject.class, ThreadContext.class, StaticScope.class, String.class, int.class));
         }
 
         inheritedConstantCount++;
     }
 
+    public void cacheConstantBoolean(BaseBodyCompiler method, String constantName) {
+        cacheConstant(method, constantName);
+        method.method.invokeinterface(p(IRubyObject.class), "isTrue", sig(boolean.class));
+    }
+
     public void cacheConstantDefined(BaseBodyCompiler method, String constantName) {
         method.loadThis();
         method.loadThreadContext();
+        method.loadStaticScope();
         method.method.ldc(constantName);
         if (inheritedConstantCount < AbstractScript.NUMBERED_CONSTANT_COUNT) {
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getConstantDefined" + inheritedConstantCount, sig(IRubyObject.class, ThreadContext.class, String.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getConstantDefined" + inheritedConstantCount, sig(IRubyObject.class, ThreadContext.class, StaticScope.class, String.class));
         } else {
             method.method.pushInt(inheritedConstantCount);
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getConstantDefined", sig(IRubyObject.class, ThreadContext.class, String.class, int.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getConstantDefined", sig(IRubyObject.class, ThreadContext.class, StaticScope.class, String.class, int.class));
         }
 
         inheritedConstantCount++;
@@ -492,11 +509,10 @@ public class InheritedCacheCompiler implements CacheCompiler {
         }
     }
 
-    public void cacheClosure(BaseBodyCompiler method, String closureMethod, int arity, StaticScope scope, String file, int line, boolean hasMultipleArgsHead, NodeType argsNodeId, ASTInspector inspector) {
+    public int cacheClosure(BaseBodyCompiler method, String closureMethod, int arity, StaticScope scope, String file, int line, boolean hasMultipleArgsHead, NodeType argsNodeId, ASTInspector inspector) {
         String descriptor = RuntimeHelpers.buildBlockDescriptor(
                 closureMethod,
                 arity,
-                scope,
                 file,
                 line,
                 hasMultipleArgsHead,
@@ -505,24 +521,26 @@ public class InheritedCacheCompiler implements CacheCompiler {
 
         method.loadThis();
         method.loadThreadContext();
+        int scopeIndex = cacheStaticScope(method, scope);
 
         if (inheritedBlockBodyCount < AbstractScript.NUMBERED_BLOCKBODY_COUNT) {
             method.method.ldc(descriptor);
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getBlockBody" + inheritedBlockBodyCount, sig(BlockBody.class, ThreadContext.class, String.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getBlockBody" + inheritedBlockBodyCount, sig(BlockBody.class, ThreadContext.class, StaticScope.class, String.class));
         } else {
             method.method.pushInt(inheritedBlockBodyCount);
             method.method.ldc(descriptor);
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getBlockBody", sig(BlockBody.class, ThreadContext.class, int.class, String.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getBlockBody", sig(BlockBody.class, ThreadContext.class, StaticScope.class, int.class, String.class));
         }
 
         inheritedBlockBodyCount++;
+
+        return scopeIndex;
     }
 
-    public void cacheClosure19(BaseBodyCompiler method, String closureMethod, int arity, StaticScope scope, String file, int line, boolean hasMultipleArgsHead, NodeType argsNodeId, String parameterList, ASTInspector inspector) {
+    public int cacheClosure19(BaseBodyCompiler method, String closureMethod, int arity, StaticScope scope, String file, int line, boolean hasMultipleArgsHead, NodeType argsNodeId, String parameterList, ASTInspector inspector) {
         String descriptor = RuntimeHelpers.buildBlockDescriptor19(
                 closureMethod,
                 arity,
-                scope,
                 file,
                 line,
                 hasMultipleArgsHead,
@@ -532,17 +550,20 @@ public class InheritedCacheCompiler implements CacheCompiler {
 
         method.loadThis();
         method.loadThreadContext();
+        int scopeIndex = cacheStaticScope(method, scope);
 
         if (inheritedBlockBodyCount < AbstractScript.NUMBERED_BLOCKBODY_COUNT) {
             method.method.ldc(descriptor);
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getBlockBody19" + inheritedBlockBodyCount, sig(BlockBody.class, ThreadContext.class, String.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getBlockBody19" + inheritedBlockBodyCount, sig(BlockBody.class, ThreadContext.class, StaticScope.class, String.class));
         } else {
             method.method.pushInt(inheritedBlockBodyCount);
             method.method.ldc(descriptor);
-            method.method.invokevirtual(scriptCompiler.getClassname(), "getBlockBody19", sig(BlockBody.class, ThreadContext.class, int.class, String.class));
+            method.method.invokevirtual(scriptCompiler.getClassname(), "getBlockBody19", sig(BlockBody.class, ThreadContext.class, StaticScope.class, int.class, String.class));
         }
 
         inheritedBlockBodyCount++;
+
+        return scopeIndex;
     }
 
     public void cacheSpecialClosure(BaseBodyCompiler method, String closureMethod) {
@@ -592,6 +613,17 @@ public class InheritedCacheCompiler implements CacheCompiler {
         }
 
         inheritedMethodCount++;
+    }
+    
+    public void cacheGlobal(BaseBodyCompiler method, String globalName) {
+        method.loadRuntime();
+        method.method.ldc(globalName);
+        method.invokeUtilityMethod("getGlobalVariable", sig(IRubyObject.class, Ruby.class, String.class));
+    }
+    
+    public void cacheGlobalBoolean(BaseBodyCompiler method, String globalName) {
+        cacheGlobal(method, globalName);
+        method.method.invokeinterface(p(IRubyObject.class), "isTrue", sig(boolean.class));
     }
 
     public void finish() {
