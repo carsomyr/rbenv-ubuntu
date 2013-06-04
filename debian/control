@@ -2,8 +2,8 @@ Source: rbenv-ruby1.9
 Section: ruby
 Priority: optional
 Maintainer: Roy Liu <carsomyr@gmail.com>
-Build-Depends: autoconf, bison, debhelper, libffi-dev, libreadline-dev, libssl-dev, libyaml-dev, m4, rsync, ruby, zlib1g-dev
-Standards-Version: 3.9.3
+Build-Depends: autoconf, bison, debhelper (>= 9), libffi-dev, libreadline-dev, libssl-dev, libyaml-dev, m4, rsync, ruby, zlib1g-dev
+Standards-Version: 3.9.4
 Homepage: http://www.ruby-lang.org/
 
 Package: rbenv-ruby1.9
