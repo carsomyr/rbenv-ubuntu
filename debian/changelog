@@ -1,5 +1,6 @@
-rbenv-jruby1.7 (1.7.2-0ubuntu2) precise; urgency=low
+rbenv-jruby1.7 (1.7.2-0ubuntu3) precise; urgency=low
 
+  * Update the rules file to use current debhelper conventions.
   * Change the packaging so that rbenv Rubies may be referenced by their major
     versions. A symlink of the rbenv version to this major version directory is
     maintained.

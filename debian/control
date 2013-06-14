@@ -2,8 +2,8 @@ Source: rbenv-jruby1.7
 Section: ruby
 Priority: optional
 Maintainer: Roy Liu <carsomyr@gmail.com>
-Build-Depends: ant, debhelper, default-jdk, m4, rsync
-Standards-Version: 3.9.3
+Build-Depends: ant, debhelper (>= 9), default-jdk, m4, rsync
+Standards-Version: 3.9.4
 Homepage: http://www.jruby.org/
 
 Package: rbenv-jruby1.7

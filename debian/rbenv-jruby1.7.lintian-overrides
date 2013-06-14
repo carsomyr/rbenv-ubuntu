@@ -1,5 +1,7 @@
 embedded-javascript-library
 executable-not-elf-or-script
+hardening-no-fortify-functions
+hardening-no-relro
 image-file-in-usr-lib
 jar-not-in-usr-share
 missing-dep-for-interpreter
@@ -7,4 +9,5 @@ package-contains-empty-directory
 postinst-has-useless-call-to-ldconfig
 postrm-has-useless-call-to-ldconfig
 script-not-executable
+spelling-error-in-binary
 wrong-path-for-interpreter
