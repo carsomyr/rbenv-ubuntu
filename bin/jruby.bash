@@ -26,7 +26,7 @@ if [ -z "$JAVA_VM" ]; then
 fi
 
 # get the absolute path of the executable
-SELF_PATH=$(cd -P -- "$(dirname -- "$0")" && pwd -P) && SELF_PATH=$SELF_PATH/$(basename -- "$0")
+SELF_PATH=$(builtin cd -P -- "$(dirname -- "$0")" >/dev/null && pwd -P) && SELF_PATH=$SELF_PATH/$(basename -- "$0")
 
 # resolve symlinks
 while [ -h $SELF_PATH ]; do
@@ -351,7 +351,7 @@ if [ "$VERIFY_JRUBY" != "" ]; then
       echo "Running with instrumented profiler"
   fi
 
-  if [ $java_class = $JAVA_CLASS_NGSERVER -a -n ${JRUBY_OPTS} ]; then
+  if [[ "${java_class:-}" == "${JAVA_CLASS_NGSERVER:-}" && -n "${JRUBY_OPTS:-}" ]]; then
     echo "warning: starting a nailgun server; discarding JRUBY_OPTS: ${JRUBY_OPTS}"
     JRUBY_OPTS=''
   fi

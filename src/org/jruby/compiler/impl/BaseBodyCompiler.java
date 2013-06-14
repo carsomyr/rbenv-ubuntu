@@ -33,7 +33,6 @@ import org.jruby.RubyRegexp;
 import org.jruby.RubyString;
 import org.jruby.RubySymbol;
 import org.jruby.ast.NodeType;
-import org.jruby.ast.executable.AbstractScript;
 import org.jruby.ast.util.ArgsUtil;
 import org.jruby.compiler.ASTInspector;
 import org.jruby.compiler.ArgumentsCallback;
@@ -51,7 +50,7 @@ import org.jruby.internal.runtime.GlobalVariables;
 import org.jruby.internal.runtime.methods.CallConfiguration;
 import org.jruby.internal.runtime.methods.DynamicMethod;
 import org.jruby.javasupport.JavaUtil;
-import org.jruby.javasupport.util.RuntimeHelpers;
+import org.jruby.runtime.Helpers;
 import org.jruby.lexer.yacc.ISourcePosition;
 import org.jruby.parser.ReOptions;
 import org.jruby.parser.StaticScope;
@@ -69,7 +68,6 @@ import org.jruby.runtime.opto.OptoFactory;
 import org.jruby.util.ByteList;
 import org.jruby.util.DefinedMessage;
 import org.jruby.util.JavaNameMangler;
-import org.jruby.util.SafePropertyAccessor;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.Type;
 import static org.objectweb.asm.Opcodes.*;
@@ -90,6 +88,7 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
     protected Label scopeEnd = new Label();
     protected Label redoJump;
     protected boolean inNestedMethod = false;
+    protected boolean inRescue = false;
     private int lastLine = -1;
     private int lastPositionLine = -1;
     protected StaticScope scope;
@@ -269,7 +268,7 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
      * necessary.  All of these live in CompilerHelpers.
      */
     public void invokeUtilityMethod(String methodName, String signature) {
-        method.invokestatic(p(RuntimeHelpers.class), methodName, signature);
+        method.invokestatic(p(Helpers.class), methodName, signature);
     }
 
     public void invokeThreadContext(String methodName, String signature) {
@@ -602,7 +601,7 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
     private void buildObjectArray(String type, Object[] sourceArray, ArrayCallback callback) {
         if (sourceArray.length == 0) {
             method.getstatic(p(IRubyObject.class), "NULL_ARRAY", ci(IRubyObject[].class));
-        } else if (sourceArray.length <= RuntimeHelpers.MAX_SPECIFIC_ARITY_OBJECT_ARRAY) {
+        } else if (sourceArray.length <= Helpers.MAX_SPECIFIC_ARITY_OBJECT_ARRAY) {
             // if we have a specific-arity helper to construct an array for us, use that
             for (int i = 0; i < sourceArray.length; i++) {
                 callback.nextValue(this, sourceArray, i);
@@ -627,7 +626,7 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
     private void buildRubyArray(Object[] sourceArray, ArrayCallback callback, boolean light) {
         if (sourceArray.length == 0) {
             method.invokestatic(p(RubyArray.class), "newEmptyArray", sig(RubyArray.class, Ruby.class));
-        } else if (sourceArray.length <= RuntimeHelpers.MAX_SPECIFIC_ARITY_OBJECT_ARRAY) {
+        } else if (sourceArray.length <= Helpers.MAX_SPECIFIC_ARITY_OBJECT_ARRAY) {
             // if we have a specific-arity helper to construct an array for us, use that
             for (int i = 0; i < sourceArray.length; i++) {
                 callback.nextValue(this, sourceArray, i);
@@ -779,7 +778,7 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
 
         // use specific-arity for as much as possible
         int i = 0;
-        for (; i < keyCount && i < RuntimeHelpers.MAX_SPECIFIC_ARITY_HASH; i++) {
+        for (; i < keyCount && i < Helpers.MAX_SPECIFIC_ARITY_HASH; i++) {
             callback.nextValue(this, elements, i);
         }
 
@@ -1183,7 +1182,7 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
         loadThreadContext();
         loadSelf();
 
-        String scopeNames = RuntimeHelpers.encodeScope(scope);
+        String scopeNames = Helpers.encodeScope(scope);
         method.ldc(scopeNames);
 
         script.getCacheCompiler().cacheSpecialClosure(this, closureMethodName);
@@ -1328,19 +1327,19 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
     }
 
     public void splatCurrentValue(String methodName) {
-        method.invokestatic(p(RuntimeHelpers.class), methodName, sig(RubyArray.class, params(IRubyObject.class)));
+        method.invokestatic(p(Helpers.class), methodName, sig(RubyArray.class, params(IRubyObject.class)));
     }
 
     public void singlifySplattedValue() {
-        method.invokestatic(p(RuntimeHelpers.class), "aValueSplat", sig(IRubyObject.class, params(IRubyObject.class)));
+        method.invokestatic(p(Helpers.class), "aValueSplat", sig(IRubyObject.class, params(IRubyObject.class)));
     }
 
     public void singlifySplattedValue19() {
-        method.invokestatic(p(RuntimeHelpers.class), "aValueSplat19", sig(IRubyObject.class, params(IRubyObject.class)));
+        method.invokestatic(p(Helpers.class), "aValueSplat19", sig(IRubyObject.class, params(IRubyObject.class)));
     }
 
     public void aryToAry() {
-        method.invokestatic(p(RuntimeHelpers.class), "aryToAry", sig(IRubyObject.class, params(IRubyObject.class)));
+        method.invokestatic(p(Helpers.class), "aryToAry", sig(IRubyObject.class, params(IRubyObject.class)));
     }
 
     public void ensureRubyArray() {
@@ -1480,7 +1479,7 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
     public void match2Capture(CompilerCallback value, int[] scopeOffsets, boolean is19) {
         loadThreadContext();
         value.call(this);
-        method.ldc(RuntimeHelpers.encodeCaptureOffsets(scopeOffsets));
+        method.ldc(Helpers.encodeCaptureOffsets(scopeOffsets));
         invokeUtilityMethod(is19 ? "match2AndUpdateScope19" : "match2AndUpdateScope", sig(IRubyObject.class, params(IRubyObject.class, ThreadContext.class, IRubyObject.class, String.class)));
     }
 
@@ -1880,92 +1879,115 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
     public void performRescue(BranchCallback regularCode, BranchCallback rubyCatchCode, BranchCallback rubyElseCode, boolean needsRetry) {
         String mname = getNewRescueName();
         BaseBodyCompiler rescueMethod = outline(mname);
-        rescueMethod.performRescueLight(regularCode, rubyCatchCode, rubyElseCode, needsRetry);
+        rescueMethod.performRescueInternal(regularCode, rubyCatchCode, rubyElseCode, needsRetry, false);
         rescueMethod.endBody();
     }
 
     public void performRescueLight(BranchCallback regularCode, BranchCallback rubyCatchCode, BranchCallback rubyElseCode, boolean needsRetry) {
+        performRescueInternal(regularCode, rubyCatchCode, rubyElseCode, needsRetry, true);
+    }
+
+    public void performRescueInternal(BranchCallback regularCode, BranchCallback rubyCatchCode, BranchCallback rubyElseCode, boolean needsRetry, boolean light) {
         Label afterRubyCatchBody = new Label();
         Label catchRetry = new Label();
         Label catchJumps = new Label();
         Label exitRescue = new Label();
+        
+        // because we must handle clearing $! properly for early returns, treat
+        // this method as a "nested" method, and use full exception logic for
+        // return, break, etc.
+        boolean oldInNested = inNestedMethod;
+        inNestedMethod = !light;
 
-        // store previous exception for restoration if we rescue something
-        loadThreadContext();
-        invokeThreadContext("getErrorInfo", sig(IRubyObject.class));
-        method.astore(getPreviousExceptionIndex());
+        try {
+            // store previous exception for restoration if we rescue something
+            loadThreadContext();
+            invokeThreadContext("getErrorInfo", sig(IRubyObject.class));
+            method.astore(getPreviousExceptionIndex());
 
-        Label beforeBody = new Label();
-        Label afterBody = new Label();
-        Label rubyCatchBlock = new Label();
-        Label flowCatchBlock = new Label();
-        Label elseLabel = new Label();
+            Label beforeBody = new Label();
+            Label afterBody = new Label();
+            Label rubyCatchBlock = new Label();
+            Label flowCatchBlock = new Label();
+            Label elseLabel = new Label();
 
-        method.visitTryCatchBlock(beforeBody, afterBody, flowCatchBlock, p(JumpException.FlowControlException.class));
-        method.visitTryCatchBlock(beforeBody, afterBody, rubyCatchBlock, p(Throwable.class));
+            method.visitTryCatchBlock(beforeBody, afterBody, flowCatchBlock, p(JumpException.FlowControlException.class));
+            method.visitTryCatchBlock(beforeBody, afterBody, rubyCatchBlock, p(Throwable.class));
 
-        method.visitLabel(beforeBody);
-        {
-            regularCode.branch(this);
-        }
-        method.label(afterBody);
-
-        if (rubyElseCode != null) {
-            method.go_to(elseLabel);
-        } else {
-            method.go_to(exitRescue);
-        }
-
-        // Handle Flow exceptions, just propagating them
-        method.label(flowCatchBlock);
-        {
-            // rethrow to outer flow catcher
-            method.athrow();
-        }
-
-        // Handle Ruby exceptions (RaiseException)
-        method.label(rubyCatchBlock);
-        {
-            method.astore(getExceptionIndex());
-
-            rubyCatchCode.branch(this);
-            method.label(afterRubyCatchBody);
-            method.go_to(exitRescue);
-        }
-
-        // retry handling in the rescue blocks
-        if (needsRetry) {
-            method.trycatch(rubyCatchBlock, afterRubyCatchBody, catchRetry, p(JumpException.RetryJump.class));
-            method.label(catchRetry);
+            method.visitLabel(beforeBody);
             {
-                method.pop();
+                regularCode.branch(this);
             }
-            method.go_to(beforeBody);
-        }
+            method.label(afterBody);
 
-        // and remaining jump exceptions should restore $!
-        method.trycatch(beforeBody, afterRubyCatchBody, catchJumps, p(JumpException.FlowControlException.class));
-        method.label(catchJumps);
-        {
+            if (rubyElseCode != null) {
+                method.go_to(elseLabel);
+            } else {
+                method.go_to(exitRescue);
+            }
+
+            // Handle Flow exceptions, just propagating them
+            method.label(flowCatchBlock);
+            {
+                // rethrow to outer flow catcher
+                method.athrow();
+            }
+
+            // Handle Ruby exceptions (RaiseException)
+            method.label(rubyCatchBlock);
+            {
+                // if in rescue and we do a hard return, must clear $!
+                boolean oldInRescue = inRescue;
+                inRescue = true;
+                
+                try {
+                    method.astore(getExceptionIndex());
+
+                    rubyCatchCode.branch(this);
+                } finally {
+                    inRescue = oldInRescue;
+                }
+                
+                method.label(afterRubyCatchBody);
+                method.go_to(exitRescue);
+            }
+
+            // retry handling in the rescue blocks
+            if (needsRetry) {
+                method.trycatch(rubyCatchBlock, afterRubyCatchBody, catchRetry, p(JumpException.RetryJump.class));
+                method.label(catchRetry);
+                {
+                    method.pop();
+                }
+                method.go_to(beforeBody);
+            }
+
+            // and remaining jump exceptions should restore $!
+            method.trycatch(beforeBody, afterRubyCatchBody, catchJumps, p(JumpException.FlowControlException.class));
+            method.label(catchJumps);
+            {
+                loadThreadContext();
+                method.aload(getPreviousExceptionIndex());
+                invokeThreadContext("setErrorInfo", sig(IRubyObject.class, IRubyObject.class));
+                method.pop();
+                method.athrow();
+            }
+
+            if (rubyElseCode != null) {
+                method.label(elseLabel);
+                rubyElseCode.branch(this);
+            }
+
+            method.label(exitRescue);
+
+            // restore the original exception
             loadThreadContext();
             method.aload(getPreviousExceptionIndex());
             invokeThreadContext("setErrorInfo", sig(IRubyObject.class, IRubyObject.class));
             method.pop();
-            method.athrow();
+        } finally {
+            inNestedMethod = oldInNested;
         }
-
-        if (rubyElseCode != null) {
-            method.label(elseLabel);
-            rubyElseCode.branch(this);
-        }
-
-        method.label(exitRescue);
-
-        // restore the original exception
-        loadThreadContext();
-        method.aload(getPreviousExceptionIndex());
-        invokeThreadContext("setErrorInfo", sig(IRubyObject.class, IRubyObject.class));
-        method.pop();
     }
 
     public void wrapJavaException() {
@@ -2710,7 +2732,7 @@ public abstract class BaseBodyCompiler implements BodyCompiler {
                     params(ThreadContext.class, IRubyObject.class, Object.class, String.class, String.class, StaticScope.class, int.class, String.class, int.class, CallConfiguration.class, String.class)));
         }
 
-        script.addInvokerDescriptor(newMethodName, methodArity, scope, inspector.getCallConfig(), filename, line);
+        script.addInvokerDescriptor(name, newMethodName, methodArity, scope, inspector.getCallConfig(), filename, line);
 
         // emit method body
 

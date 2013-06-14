@@ -163,12 +163,16 @@
                 <include name="**/*.rb"/>
             </fileset>
         </copy>
+        <antcall target="copy-bc-resources"/>
+        <property name="copy-resources.hasrun" value="true"/>
+    </target>
+
+    <target name="copy-bc-resources" unless="exclude_openssl">
         <copy todir="${lib.dir}/ruby/shared" preservelastmodified="true">
             <fileset dir="${build.lib.dir}">
                 <include name="bc*.jar"/>
             </fileset>
         </copy>
-        <property name="copy-resources.hasrun" value="true"/>
     </target>
 
     <macrodef name="update-constants">
@@ -197,12 +201,12 @@
             <echo message="...using git revision = ${jruby.revision}, tzdata = @{tzdata-version}"/>
 
             <!-- avoid overwriting if it hasn't changed, to avoid recompiles -->
-            <copy file="src_gen/org/jruby/runtime/Constants.java"
-                  tofile="src_gen/org/jruby/runtime/Constants.java.old"
+            <copy file="build/src_gen/org/jruby/runtime/Constants.java"
+                  tofile="build/src_gen/org/jruby/runtime/Constants.java.old"
                   preservelastmodified="true" failonerror="false"/>
             <copy file="src/org/jruby/runtime/Constants.java"
                   overwrite="true"
-                  tofile="src_gen/org/jruby/runtime/Constants.java.gen">
+                  tofile="build/src_gen/org/jruby/runtime/Constants.java.gen">
                 <filterset>
                     <filter token="version.ruby.major" value="${version.ruby.major}"/>
                     <filter token="version.ruby" value="${version.ruby}"/>
@@ -228,8 +232,8 @@
             </copy>
 
             <condition property="constants.java.is.same">
-                <filesmatch file1="src_gen/org/jruby/runtime/Constants.java.gen"
-                            file2="src_gen/org/jruby/runtime/Constants.java.old" textfile="true"/>
+                <filesmatch file1="build/src_gen/org/jruby/runtime/Constants.java.gen"
+                            file2="build/src_gen/org/jruby/runtime/Constants.java.old" textfile="true"/>
             </condition>
             <antcall target="_uc_internal_"/>
 
@@ -243,15 +247,15 @@
     </target>
 
     <target name="_uc_internal_" unless="constants.java.is.same">
-        <copy file="src_gen/org/jruby/runtime/Constants.java.gen" tofile="src_gen/org/jruby/runtime/Constants.java"/>
-        <javac destdir="${jruby.classes.dir}" debug="true" srcdir="src_gen"
+        <copy file="build/src_gen/org/jruby/runtime/Constants.java.gen" tofile="build/src_gen/org/jruby/runtime/Constants.java"/>
+        <javac destdir="${jruby.classes.dir}" debug="true" srcdir="build/src_gen"
                includes="org/jruby/runtime/Constants.java" source="${javac.version}"
                target="${javac.version}" deprecation="true" encoding="UTF-8"
                includeantruntime="false"/>
     </target>
 
     <target name="compile-annotation-binder">
-        <mkdir dir="src_gen"/>
+        <mkdir dir="build/src_gen"/>
 
         <javac destdir="${jruby.classes.dir}" debug="true" srcdir="${src.dir}"
                sourcepath="" classpathref="build.classpath" source="${javac.version}"
@@ -291,6 +295,7 @@
             <compilerarg line="-XDignore.symbol.file=true"/>
             <compilerarg line="-J-Dfile.encoding=UTF-8"/>
             <compilerarg line="-J-Duser.language=en"/>
+            <compilerarg line="-J-Xbootclasspath/p:build_lib/unsafe-mock-1.0-SNAPSHOT.jar"/>
             <compilerarg line="-processor org.jruby.anno.AnnotationBinder"/>
         </javac>
 
@@ -301,7 +306,7 @@
     </target>
 
     <target name="generate-method-classes">
-        <available file="src_gen/annotated_classes.txt" property="annotations.changed"/>
+        <available file="build/src_gen/annotated_classes.txt" property="annotations.changed"/>
         <antcall target="_gmc_internal_"/>
     </target>
 
@@ -310,7 +315,7 @@
         <java classname="org.jruby.anno.InvokerGenerator" fork="true" failonerror="true">
             <classpath refid="jruby.execute.classpath"/>
             <sysproperty key="jruby.bytecode.version" value="${javac.version}"/>
-            <arg value="src_gen/annotated_classes.txt"/>
+            <arg value="build/src_gen/annotated_classes.txt"/>
             <arg value="${jruby.classes.dir}"/>
         </java>
 
@@ -319,11 +324,11 @@
                target="${javac.version}" deprecation="true" encoding="UTF-8"
                includeantruntime="true">
             <classpath refid="jruby.execute.classpath"/>
-            <src path="src_gen"/>
+            <src path="build/src_gen"/>
             <patternset refid="java.src.pattern"/>
         </javac>
 
-        <delete file="src_gen/annotated_classes.txt"/>
+        <delete file="build/src_gen/annotated_classes.txt"/>
     </target>
 
     <target name="generate-unsafe">
@@ -387,7 +392,7 @@
           yecht.jar
           yydebug.jar
           nailgun-0.7.1.jar
-          jzlib-1.1.0.jar
+          jzlib-1.1.2.jar
           invokebinder.jar"/>
 
     <target name="jar-jruby" depends="init, compile, unzip-native-libs" unless="jar-up-to-date, jar-jruby.hasrun">
@@ -414,7 +419,7 @@
         <property name="jar-jruby.hasrun" value="true"/>
     </target>
     
-    <target name="jar-jopenssl">
+    <target name="jar-jopenssl" unless="exclude_openssl">
         <jar destfile="${lib.dir}/ruby/shared/jopenssl.jar" compress="true" index="true" update="true">
             <fileset dir="${jruby.classes.dir}">
                 <include name="**/*openssl*/**/*"/>
@@ -491,7 +496,6 @@ other than ASM, which is rewritten to avoid conflicts. -->
             <param name="jar.wrap" value="${lib.dir}/jruby.jar"/>
             <param name="bar.wrap" value="${lib.dir}/jruby.bar"/>
         </antcall>
-        
         <antcall target="jar-jopenssl"/>
     </target>
     <target name="jarjar" depends="jar-jruby-dist"/>
@@ -621,13 +625,6 @@ other than ASM, which is rewritten to avoid conflicts. -->
         <property name="jar-jruby-complete.hasrun" value="true"/>
     </target>
 
-    <target name="dist-jar-complete" depends="jar-jruby-complete">
-        <mkdir dir="${dist.dir}"/>
-        <move file="${dest.lib.dir}/jruby-complete.jar" tofile="${dist.dir}/jruby-complete-${version.jruby}.jar"/>
-        <checksum file="${dist.dir}/jruby-complete-${version.jruby}.jar" algorithm="md5"/>
-        <checksum file="${dist.dir}/jruby-complete-${version.jruby}.jar" algorithm="sha1"/>
-    </target>
-
     <target name="jar-console" depends="compile" description="Create the jruby graphical console jar">
         <antcall target="jar-jruby-complete">
             <param name="mainclass" value="org.jruby.demo.IRBConsole"/>
@@ -654,7 +651,11 @@ other than ASM, which is rewritten to avoid conflicts. -->
             description="Create the jruby-complete.jar file. This version uses JarJar to rewrite some packages.">
         <antcall target="jar-jruby-complete" inheritall="true"/>
     </target>
-
+    <target name="jar-no-encryption-complete" depends="init"
+            description="Create the jruby-complete.jar file just like jar-complete, but refrains from including anything with encryption algorithms">
+        <property name="exclude_openssl" value="true"/>
+        <antcall target="jar-jruby-complete" inheritall="true"/>
+    </target>
     <target name="compile-stdlib" unless="test">
         <mkdir dir="${build.dir}/stdlib"/>
         <echo message="Compiling 1.8 stdlib..."/>
@@ -776,7 +777,7 @@ other than ASM, which is rewritten to avoid conflicts. -->
         </or>
     </condition>
 
-    <target name="install-jruby-launcher-gem" depends="jar" unless="jruby-launcher.gem.installed">
+    <target name="install-jruby-launcher-gem" depends="install-dev-gems" unless="jruby-launcher.gem.installed">
         <java classname="org.jruby.Main" fork="true" maxmemory="${jruby.launch.memory}" failonerror="false">
             <classpath refid="build.classpath"/>
             <classpath path="${jruby.classes.dir}"/>
@@ -835,7 +836,7 @@ other than ASM, which is rewritten to avoid conflicts. -->
             <fileset dir="${lib.dir}" includes="jruby*.jar"/>
         </delete>
         <delete dir="${api.docs.dir}"/>
-        <delete dir="src_gen"/>
+        <delete dir="build/src_gen"/>
         <antcall target="clean-ng"/>
         <antcall target="clean-tzdata"/>
     </target>

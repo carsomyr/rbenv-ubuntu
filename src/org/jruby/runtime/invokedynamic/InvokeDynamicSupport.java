@@ -1,11 +1,11 @@
 /*
  ***** BEGIN LICENSE BLOCK *****
- * Version: CPL 1.0/GPL 2.0/LGPL 2.1
+ * Version: EPL 1.0/GPL 2.0/LGPL 2.1
  *
- * The contents of this file are subject to the Common Public
+ * The contents of this file are subject to the Eclipse Public
  * License Version 1.0 (the "License"); you may not use this file
  * except in compliance with the License. You may obtain a copy of
- * the License at http://www.eclipse.org/legal/cpl-v10.html
+ * the License at http://www.eclipse.org/legal/epl-v10.html
  *
  * Software distributed under the License is distributed on an "AS
  * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
@@ -18,11 +18,11 @@
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
- * use your version of this file under the terms of the CPL, indicate your
+ * use your version of this file under the terms of the EPL, indicate your
  * decision by deleting the provisions above and replace them with the notice
  * and other provisions required by the GPL or the LGPL. If you do not delete
  * the provisions above, a recipient may use your version of this file under
- * the terms of any one of the CPL, the GPL or the LGPL.
+ * the terms of any one of the EPL, the GPL or the LGPL.
  ***** END LICENSE BLOCK *****/
 
 package org.jruby.runtime.invokedynamic;
@@ -41,7 +41,7 @@ import org.jruby.*;
 import org.jruby.ast.executable.AbstractScript;
 import org.jruby.exceptions.JumpException;
 import org.jruby.internal.runtime.methods.DynamicMethod;
-import org.jruby.javasupport.util.RuntimeHelpers;
+import org.jruby.runtime.Helpers;
 import org.jruby.parser.StaticScope;
 import org.jruby.runtime.Block;
 import org.jruby.runtime.BlockBody;
@@ -64,6 +64,7 @@ import static java.lang.invoke.MethodType.*;
 import org.jruby.internal.runtime.GlobalVariable;
 import org.jruby.runtime.opto.Invalidator;
 import org.jruby.util.JavaNameMangler;
+import org.jruby.util.cli.Options;
 
 @SuppressWarnings("deprecation")
 public class InvokeDynamicSupport {
@@ -252,7 +253,7 @@ public class InvokeDynamicSupport {
     }
 
     public static CallSite getByteListBootstrap(Lookup lookup, String name, MethodType type, String asString, String encodingName) {
-        byte[] bytes = RuntimeHelpers.stringToRawBytes(asString);
+        byte[] bytes = Helpers.stringToRawBytes(asString);
         Encoding encoding = EncodingDB.getEncodings().get(encodingName.getBytes()).getEncoding();
         ByteList byteList = new ByteList(bytes, encoding);
         
@@ -260,7 +261,7 @@ public class InvokeDynamicSupport {
     }
     
     public static CallSite getRegexpBootstrap(Lookup lookup, String name, MethodType type, String asString, String encodingName, int options) {
-        byte[] bytes = RuntimeHelpers.stringToRawBytes(asString);
+        byte[] bytes = Helpers.stringToRawBytes(asString);
         Encoding encoding = EncodingDB.getEncodings().get(encodingName.getBytes()).getEncoding();
         ByteList byteList = new ByteList(bytes, encoding);
         
@@ -374,7 +375,7 @@ public class InvokeDynamicSupport {
     }
     
     public static CallSite getStringBootstrap(Lookup lookup, String name, MethodType type, String asString, String encodingName, int codeRange) {
-        byte[] bytes = RuntimeHelpers.stringToRawBytes(asString);
+        byte[] bytes = Helpers.stringToRawBytes(asString);
         Encoding encoding = EncodingDB.getEncodings().get(encodingName.getBytes()).getEncoding();
         ByteList byteList = new ByteList(bytes, encoding);
         
@@ -467,7 +468,7 @@ public class InvokeDynamicSupport {
         RubyClass.VariableAccessor accessor = realClass.getVariableAccessorForRead(site.name);
         
         // produce nil if the variable has not been initialize
-        MethodHandle nullToNil = findStatic(RuntimeHelpers.class, "nullToNil", methodType(IRubyObject.class, IRubyObject.class, IRubyObject.class));
+        MethodHandle nullToNil = findStatic(Helpers.class, "nullToNil", methodType(IRubyObject.class, IRubyObject.class, IRubyObject.class));
         nullToNil = insertArguments(nullToNil, 1, self.getRuntime().getNil());
         nullToNil = explicitCastArguments(nullToNil, methodType(IRubyObject.class, Object.class));
         
@@ -592,6 +593,20 @@ public class InvokeDynamicSupport {
     public static IRubyObject getGlobalFallback(GlobalSite site, ThreadContext context) throws Throwable {
         Ruby runtime = context.runtime;
         GlobalVariable variable = runtime.getGlobalVariables().getVariable(site.name);
+        
+        if (site.failures() > Options.INVOKEDYNAMIC_GLOBAL_MAXFAIL.load() ||
+                variable.getScope() != GlobalVariable.Scope.GLOBAL) {
+            
+            // use uncached logic forever
+            if (Options.INVOKEDYNAMIC_LOG_GLOBALS.load()) LOG.info("global " + site.name + " (" + site.file() + ":" + site.line() + ") rebound > " + Options.INVOKEDYNAMIC_GLOBAL_MAXFAIL.load() + " times, reverting to simple lookup");
+            
+            MethodHandle uncached = lookup().findStatic(InvokeDynamicSupport.class, "getGlobalUncached", methodType(IRubyObject.class, GlobalVariable.class));
+            uncached = uncached.bindTo(variable);
+            uncached = dropArguments(uncached, 0, ThreadContext.class);
+            site.setTarget(uncached);
+            return (IRubyObject)uncached.invokeWithArguments(context);
+        }
+        
         Invalidator invalidator = variable.getInvalidator();
         IRubyObject value = variable.getAccessor().getValue();
         
@@ -604,12 +619,32 @@ public class InvokeDynamicSupport {
         
         site.setTarget(target);
         
+        if (Options.INVOKEDYNAMIC_LOG_GLOBALS.load()) LOG.info("global " + site.name + " (" + site.file() + ":" + site.line() + ") cached");
+        
         return value;
+    }
+    
+    public static IRubyObject getGlobalUncached(GlobalVariable variable) throws Throwable {
+        return variable.getAccessor().getValue();
     }
     
     public static boolean getGlobalBooleanFallback(GlobalSite site, ThreadContext context) throws Throwable {
         Ruby runtime = context.runtime;
         GlobalVariable variable = runtime.getGlobalVariables().getVariable(site.name);
+        
+        if (site.failures() > Options.INVOKEDYNAMIC_GLOBAL_MAXFAIL.load() ||
+                variable.getScope() != GlobalVariable.Scope.GLOBAL) {
+            
+            // use uncached logic forever
+            if (Options.INVOKEDYNAMIC_LOG_GLOBALS.load()) LOG.info("global " + site.name + " (" + site.file() + ":" + site.line() + ") rebound > " + Options.INVOKEDYNAMIC_GLOBAL_MAXFAIL.load() + " times, reverting to simple lookup");
+
+            MethodHandle uncached = lookup().findStatic(InvokeDynamicSupport.class, "getGlobalBooleanUncached", methodType(boolean.class, GlobalVariable.class));
+            uncached = uncached.bindTo(variable);
+            uncached = dropArguments(uncached, 0, ThreadContext.class);
+            site.setTarget(uncached);
+            return (Boolean)uncached.invokeWithArguments(context);
+        }
+        
         Invalidator invalidator = variable.getInvalidator();
         boolean value = variable.getAccessor().getValue().isTrue();
         
@@ -622,7 +657,13 @@ public class InvokeDynamicSupport {
         
         site.setTarget(target);
         
+        if (Options.INVOKEDYNAMIC_LOG_GLOBALS.load()) LOG.info("global " + site.name + " (" + site.file() + ":" + site.line() + ") cached as boolean");
+        
         return value;
+    }
+    
+    public static boolean getGlobalBooleanUncached(GlobalVariable variable) throws Throwable {
+        return variable.getAccessor().getValue().isTrue();
     }
 
     public static CallSite checkpointBootstrap(Lookup lookup, String name, MethodType type) throws Throwable {
@@ -762,13 +803,13 @@ public class InvokeDynamicSupport {
     }
     
     public static BlockBody initBlockBody(MutableCallSite site, Object scriptObject, ThreadContext context, StaticScope scope, String descriptor) {
-        BlockBody body = RuntimeHelpers.createCompiledBlockBody(context, scriptObject, scope, descriptor);
+        BlockBody body = Helpers.createCompiledBlockBody(context, scriptObject, scope, descriptor);
         site.setTarget(dropArguments(constant(BlockBody.class, body), 0, Object.class, ThreadContext.class, StaticScope.class));
         return body;
     }
     
     public static BlockBody initBlockBody19(MutableCallSite site, Object scriptObject, ThreadContext context, StaticScope scope, String descriptor) {
-        BlockBody body = RuntimeHelpers.createCompiledBlockBody19(context, scriptObject, scope, descriptor);
+        BlockBody body = Helpers.createCompiledBlockBody19(context, scriptObject, scope, descriptor);
         site.setTarget(dropArguments(constant(BlockBody.class, body), 0, Object.class, ThreadContext.class, StaticScope.class));
         return body;
     }
@@ -783,43 +824,43 @@ public class InvokeDynamicSupport {
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name, IRubyObject[] args) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, args, Block.NULL_BLOCK);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, args, Block.NULL_BLOCK);
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, Block.NULL_BLOCK);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, Block.NULL_BLOCK);
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name, Block block) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, block);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, block);
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name, IRubyObject arg) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg, Block.NULL_BLOCK);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg, Block.NULL_BLOCK);
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name, IRubyObject[] args, Block block) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, args, block);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, args, block);
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name, IRubyObject arg0, Block block) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, block);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, block);
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name, IRubyObject arg0, IRubyObject arg1) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, arg1, Block.NULL_BLOCK);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, arg1, Block.NULL_BLOCK);
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name, IRubyObject arg0, IRubyObject arg1, Block block) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, arg1, block);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, arg1, block);
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name, IRubyObject arg0, IRubyObject arg1, IRubyObject arg2) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, arg1, arg2, Block.NULL_BLOCK);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, arg1, arg2, Block.NULL_BLOCK);
     }
 
     public static IRubyObject callMethodMissing(CacheEntry entry, CallType callType, ThreadContext context, IRubyObject self, String name, IRubyObject arg0, IRubyObject arg1, IRubyObject arg2, Block block) {
-        return RuntimeHelpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, arg1, arg2, block);
+        return Helpers.selectMethodMissing(context, self, entry.method.getVisibility(), name, callType).call(context, self, self.getMetaClass(), name, arg0, arg1, arg2, block);
     }
     
     ////////////////////////////////////////////////////////////////////////////
@@ -828,7 +869,7 @@ public class InvokeDynamicSupport {
 
     public static RubyClass pollAndGetClass(ThreadContext context, IRubyObject self) {
         context.callThreadPoll();
-        RubyClass selfType = self.getMetaClass();
+        RubyClass selfType = ((RubyBasicObject)self).getMetaClass();
         return selfType;
     }
 

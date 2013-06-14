@@ -1,11 +1,11 @@
 /*
  ***** BEGIN LICENSE BLOCK *****
- * Version: CPL 1.0/GPL 2.0/LGPL 2.1
+ * Version: EPL 1.0/GPL 2.0/LGPL 2.1
  *
- * The contents of this file are subject to the Common Public
+ * The contents of this file are subject to the Eclipse Public
  * License Version 1.0 (the "License"); you may not use this file
  * except in compliance with the License. You may obtain a copy of
- * the License at http://www.eclipse.org/legal/cpl-v10.html
+ * the License at http://www.eclipse.org/legal/epl-v10.html
  *
  * Software distributed under the License is distributed on an "AS
  * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
@@ -27,11 +27,11 @@
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
- * use your version of this file under the terms of the CPL, indicate your
+ * use your version of this file under the terms of the EPL, indicate your
  * decision by deleting the provisions above and replace them with the notice
  * and other provisions required by the GPL or the LGPL. If you do not delete
  * the provisions above, a recipient may use your version of this file under
- * the terms of any one of the CPL, the GPL or the LGPL.
+ * the terms of any one of the EPL, the GPL or the LGPL.
  ***** END LICENSE BLOCK *****/
 package org.jruby.parser;
 
@@ -1145,6 +1145,13 @@ public class ParserSupport {
         return new DStrNode(position);
     }
     
+    public Node asSymbol(ISourcePosition position, Node value) {
+        // FIXME: This might have an encoding issue since toString generally uses iso-8859-1
+        if (value instanceof StrNode) return new SymbolNode(position, ((StrNode) value).getValue().toString());
+        
+        return new DSymbolNode(position, (DStrNode) value);
+    }
+    
     public Node literal_concat(ISourcePosition position, Node head, Node tail) { 
         if (head == null) return tail;
         if (tail == null) return head;
@@ -1316,23 +1323,29 @@ public class ParserSupport {
     
     public Node new_args(ISourcePosition position, ListNode pre, ListNode optional, RestArgNode rest,
             ListNode post, ArgsTailHolder tail) {
+        if (tail == null) return new_args(position, pre, optional, rest, post, (BlockArgNode) null);
+        
         // Zero-Argument declaration
-        if (optional == null && rest == null && post == null && (tail == null || (tail.getBlockArg() == null && tail.getKeywordArgs() == null))) {
+        if (optional == null && rest == null && post == null && !tail.hasKeywordArgs() && tail.getBlockArg() == null) {
             if (pre == null || pre.size() == 0) return new ArgsNoArgNode(position);
             if (pre.size() == 1 && !hasAssignableArgs(pre)) return new ArgsPreOneArgNode(position, pre);
             if (pre.size() == 2 && !hasAssignableArgs(pre)) return new ArgsPreTwoArgNode(position, pre);
         }
 
-        if (tail == null) return new ArgsNode(position, pre, optional, rest, post, null);
-        
         return new ArgsNode(position, pre, optional, rest, post, 
                 tail.getKeywordArgs(), tail.getKeywordRestArgNode(), tail.getBlockArg());
-    }    
+    }
     
     public ArgsTailHolder new_args_tail(ISourcePosition position, ListNode keywordArg, 
             Token keywordRestArgName, BlockArgNode blockArg) {
-        KeywordRestArgNode keywordRestArg = keywordRestArgName != null ? new KeywordRestArgNode(position,
-                currentScope.assign(position, (String) keywordRestArgName.getValue(), new HashNode(position, null))) : null;
+        if (keywordRestArgName == null) return new ArgsTailHolder(position, keywordArg, null, blockArg);
+        
+        String restKwargsName = (String) keywordRestArgName.getValue();
+
+        int slot = currentScope.exists(restKwargsName);
+        if (slot == -1) slot = currentScope.addVariable(restKwargsName);
+
+        KeywordRestArgNode keywordRestArg = new KeywordRestArgNode(position, restKwargsName, slot);
         
         return new ArgsTailHolder(position, keywordArg, keywordRestArg, blockArg);
     }    
@@ -1393,9 +1406,7 @@ public class ParserSupport {
     }
 
     public void warning(ID id, ISourcePosition position, String message, Object... data) {
-        if (warnings.isVerbose()) {
-            warnings.warning(id, position, message);
-        }
+        if (warnings.isVerbose()) warnings.warning(id, position, message);
     }
 
     // ENEBO: Totally weird naming (in MRI is not allocated and is a local var name) [1.9]
@@ -1438,8 +1449,8 @@ public class ParserSupport {
                 name = "_$" + count++;
             }
         }
-        return new ArgumentNode(identifier.getPosition(), name,
-                getCurrentScope().addVariableThisScope(name));
+        
+        return new ArgumentNode(identifier.getPosition(), name, current.addVariableThisScope(name));
     }
 
     public Token formal_argument(Token identifier) {

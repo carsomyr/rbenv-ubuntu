@@ -1,11 +1,11 @@
 /*
  ***** BEGIN LICENSE BLOCK *****
- * Version: CPL 1.0/GPL 2.0/LGPL 2.1
+ * Version: EPL 1.0/GPL 2.0/LGPL 2.1
  *
- * The contents of this file are subject to the Common Public
+ * The contents of this file are subject to the Eclipse Public
  * License Version 1.0 (the "License"); you may not use this file
  * except in compliance with the License. You may obtain a copy of
- * the License at http://www.eclipse.org/legal/cpl-v10.html
+ * the License at http://www.eclipse.org/legal/epl-v10.html
  *
  * Software distributed under the License is distributed on an "AS
  * IS" basis, WITHOUT WARRANTY OF ANY KIND, either express or
@@ -18,17 +18,16 @@
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
- * use your version of this file under the terms of the CPL, indicate your
+ * use your version of this file under the terms of the EPL, indicate your
  * decision by deleting the provisions above and replace them with the notice
  * and other provisions required by the GPL or the LGPL. If you do not delete
  * the provisions above, a recipient may use your version of this file under
- * the terms of any one of the CPL, the GPL or the LGPL.
+ * the terms of any one of the EPL, the GPL or the LGPL.
  ***** END LICENSE BLOCK *****/
 package org.jruby.compiler.impl;
 
 import java.math.BigInteger;
 import org.jcodings.Encoding;
-import org.jruby.Ruby;
 import org.jruby.RubyEncoding;
 import org.jruby.RubyFixnum;
 import org.jruby.RubyFloat;
@@ -40,7 +39,7 @@ import org.jruby.ast.NodeType;
 import org.jruby.ast.executable.AbstractScript;
 import org.jruby.compiler.ASTInspector;
 import org.jruby.compiler.CompilerCallback;
-import org.jruby.javasupport.util.RuntimeHelpers;
+import org.jruby.runtime.Helpers;
 import org.jruby.parser.StaticScope;
 import org.jruby.runtime.BlockBody;
 import org.jruby.runtime.CallSite;
@@ -129,7 +128,7 @@ public class InvokeDynamicCacheCompiler extends InheritedCacheCompiler {
             return;
         }
         
-        String asString = RuntimeHelpers.rawBytesToString(contents.bytes());
+        String asString = Helpers.rawBytesToString(contents.bytes());
         String encodingName = new String(contents.getEncoding().getName());
         
         method.method.invokedynamic(
@@ -169,7 +168,7 @@ public class InvokeDynamicCacheCompiler extends InheritedCacheCompiler {
      */
     @Override
     public int cacheClosure(BaseBodyCompiler method, String closureMethod, int arity, StaticScope scope, String file, int line, boolean hasMultipleArgsHead, NodeType argsNodeId, ASTInspector inspector) {
-        String descriptor = RuntimeHelpers.buildBlockDescriptor(
+        String descriptor = Helpers.buildBlockDescriptor(
                 closureMethod,
                 arity,
                 file,
@@ -196,7 +195,7 @@ public class InvokeDynamicCacheCompiler extends InheritedCacheCompiler {
      */
     @Override
     public int cacheClosure19(BaseBodyCompiler method, String closureMethod, int arity, StaticScope scope, String file, int line, boolean hasMultipleArgsHead, NodeType argsNodeId, String parameterList, ASTInspector inspector) {
-        String descriptor = RuntimeHelpers.buildBlockDescriptor19(
+        String descriptor = Helpers.buildBlockDescriptor19(
                 closureMethod,
                 arity,
                 file,
@@ -233,7 +232,7 @@ public class InvokeDynamicCacheCompiler extends InheritedCacheCompiler {
             return;
         }
         
-        String asString = RuntimeHelpers.rawBytesToString(pattern.bytes());
+        String asString = Helpers.rawBytesToString(pattern.bytes());
         String encodingName = new String(pattern.getEncoding().getName());
         
         method.loadThreadContext();
@@ -299,7 +298,7 @@ public class InvokeDynamicCacheCompiler extends InheritedCacheCompiler {
      */
     @Override
     public int cacheStaticScope(BaseBodyCompiler method, StaticScope scope) {
-        String scopeString = RuntimeHelpers.encodeScope(scope);
+        String scopeString = Helpers.encodeScope(scope);
         
         int index = scopeCount;
         scopeCount++;
@@ -378,7 +377,7 @@ public class InvokeDynamicCacheCompiler extends InheritedCacheCompiler {
             return;
         }
         
-        String asString = RuntimeHelpers.rawBytesToString(contents.bytes());
+        String asString = Helpers.rawBytesToString(contents.bytes());
         String encodingName = new String(contents.getEncoding().getName());
         
         method.loadThreadContext();

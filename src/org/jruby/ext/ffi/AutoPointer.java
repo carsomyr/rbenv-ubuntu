@@ -3,10 +3,12 @@ package org.jruby.ext.ffi;
 
 import java.lang.ref.Reference;
 import java.lang.ref.SoftReference;
+import java.lang.ref.WeakReference;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.jruby.Ruby;
 import org.jruby.RubyClass;
+import org.jruby.RubyInstanceConfig;
 import org.jruby.RubyModule;
 import org.jruby.anno.JRubyClass;
 import org.jruby.anno.JRubyMethod;
@@ -17,12 +19,12 @@ import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.runtime.callsite.CachingCallSite;
 import org.jruby.runtime.callsite.FunctionalCachingCallSite;
-import org.jruby.util.WeakReferenceReaper;
+import org.jruby.util.PhantomReferenceReaper;
 
 import static org.jruby.runtime.Visibility.*;
 
 @JRubyClass(name = "FFI::" + AutoPointer.AUTOPTR_CLASS_NAME, parent = "FFI::Pointer")
-public final class AutoPointer extends Pointer {
+public class AutoPointer extends Pointer {
     static final String AUTOPTR_CLASS_NAME = "AutoPointer";
     
     /** Keep strong references to the Reaper until cleanup */
@@ -34,13 +36,20 @@ public final class AutoPointer extends Pointer {
     private transient volatile Reaper reaper;
     
     public static RubyClass createAutoPointerClass(Ruby runtime, RubyModule module) {
-        RubyClass result = module.defineClassUnder(AUTOPTR_CLASS_NAME,
+        RubyClass autoptrClass = module.defineClassUnder(AUTOPTR_CLASS_NAME,
                 module.getClass("Pointer"),
-                AutoPointerAllocator.INSTANCE);
-        result.defineAnnotatedMethods(AutoPointer.class);
-        result.defineAnnotatedConstants(AutoPointer.class);
+                RubyInstanceConfig.REIFY_RUBY_CLASSES ? new ReifyingAllocator(AutoPointer.class) : AutoPointerAllocator.INSTANCE);
+        autoptrClass.defineAnnotatedMethods(AutoPointer.class);
+        autoptrClass.defineAnnotatedConstants(AutoPointer.class);
+        autoptrClass.setReifiedClass(AutoPointer.class);
+        autoptrClass.kindOf = new RubyModule.KindOf() {
+            @Override
+            public boolean isKindOf(IRubyObject obj, RubyModule type) {
+                return obj instanceof AutoPointer && super.isKindOf(obj, type);
+            }
+        };
 
-        return result;
+        return autoptrClass;
     }
 
     private static final class AutoPointerAllocator implements ObjectAllocator {
@@ -52,7 +61,7 @@ public final class AutoPointer extends Pointer {
 
     }
 
-    private AutoPointer(Ruby runtime, RubyClass klazz) {
+    public AutoPointer(Ruby runtime, RubyClass klazz) {
         super(runtime, klazz, runtime.getFFI().getNullMemoryIO());
     }
     
@@ -67,7 +76,7 @@ public final class AutoPointer extends Pointer {
 
     @JRubyMethod(name="from_native", meta = true)
     public static IRubyObject from_native(ThreadContext context, IRubyObject recv, IRubyObject value, IRubyObject ctx) {
-        return ((RubyClass) recv).newInstance(context, new IRubyObject[] { value }, Block.NULL_BLOCK);
+        return ((RubyClass) recv).newInstance(context, value, Block.NULL_BLOCK);
     }
 
     @Override
@@ -96,7 +105,9 @@ public final class AutoPointer extends Pointer {
 
 
         setMemoryIO(((Pointer) pointerArg).getMemoryIO());
-        this.pointer = (Pointer) pointerArg;        
+        this.pointer = (Pointer) pointerArg;
+        this.size = pointer.size;
+        this.typeSize = pointer.typeSize;
         setReaper(new Reaper(pointer, getMetaClass(), classData.releaseCallSite));
 
         return this;
@@ -110,6 +121,9 @@ public final class AutoPointer extends Pointer {
 
         setMemoryIO(((Pointer) pointerArg).getMemoryIO());
         this.pointer = (Pointer) pointerArg;
+        this.size = pointer.size;
+        this.typeSize = pointer.typeSize;
+
         Object ffiHandle = releaser.getMetaClass().getFFIHandleAccessorField().getVariableAccessorForRead().get(releaser);
         if (!(ffiHandle instanceof ReleaserData)) {
             getMetaClass().setFFIHandle(ffiHandle = new ReleaserData());
@@ -161,13 +175,13 @@ public final class AutoPointer extends Pointer {
 
     @JRubyMethod(name = "autorelease?")
     public final IRubyObject autorelease_p(ThreadContext context) {
-        return context.runtime.newBoolean(!reaper.unmanaged);
+        return context.runtime.newBoolean(reaper != null ? !reaper.unmanaged : false);
     }
 
     private void setReaper(Reaper reaper) {
         Reference<ReaperGroup> reaperGroupReference = currentReaper.get();
         ReaperGroup reaperGroup = reaperGroupReference != null ? reaperGroupReference.get() : null;
-        Object referent = reaperGroup != null ? reaperGroup.get() : null;
+        Object referent = reaperGroup != null ? reaperGroup.referent() : null;
         if (referent == null || !reaperGroup.canAccept()) {
             reaperGroup = new ReaperGroup(referent = new Object());
             currentReaper.set(new SoftReference<ReaperGroup>(reaperGroup));
@@ -178,13 +192,19 @@ public final class AutoPointer extends Pointer {
         reaperGroup.add(reaper);
     }
 
-    private static final class ReaperGroup extends WeakReferenceReaper<Object> implements Runnable {
+    private static final class ReaperGroup extends PhantomReferenceReaper<Object> implements Runnable {
         private static int MAX_REAPERS_PER_GROUP = 100;
+        private final WeakReference<Object> weakref;
         private int reaperCount;
         private volatile Reaper head;
         
         ReaperGroup(Object referent) {
             super(referent);
+            this.weakref = new WeakReference<Object>(referent);
+        }
+        
+        Object referent() {
+            return weakref.get();
         }
         
         boolean canAccept() {

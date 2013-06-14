@@ -161,6 +161,20 @@ namespace :spec do
   task :all_compiled_19 do
     mspec :compile_mode => "JIT", :jit_threshold => 0, :compat => "1.9"
   end
+
+  # Parameterized rubyspec runs for e.g. TravisCI
+  desc "Run RubySpec in interpreted mode under the language compat version ENV['RUBYSPEC_LANG_VER']"
+  task :ci_interpreted_via_env do
+    ENV['RUBYSPEC_LANG_VER'] ||= '1.9'
+    case
+    when ENV['RUBYSPEC_LANG_VER'] == '1.8'
+      spec_config_file = RUBY18_MSPEC_FILE
+    else
+      spec_config_file = RUBY19_MSPEC_FILE
+    end
+    mspec :compile_mode => 'OFF', :compat => ENV['RUBYSPEC_LANG_VER'],
+      :spec_config => spec_config_file, :format => 's'
+  end
   
   # Complimentary tasks for running specs
 
