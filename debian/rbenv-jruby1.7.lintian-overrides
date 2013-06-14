@@ -1,5 +1,6 @@
 embedded-javascript-library
 executable-not-elf-or-script
+extra-license-file
 hardening-no-fortify-functions
 hardening-no-relro
 image-file-in-usr-lib
@@ -8,6 +9,7 @@ missing-dep-for-interpreter
 package-contains-empty-directory
 postinst-has-useless-call-to-ldconfig
 postrm-has-useless-call-to-ldconfig
+ruby-script-but-no-ruby-dep
 script-not-executable
 spelling-error-in-binary
 wrong-path-for-interpreter
