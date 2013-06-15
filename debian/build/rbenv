@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-
-RBENV_ROOT="/usr/lib/rbenv" exec -- "/usr/lib/rbenv/bin/rbenv" "$@"

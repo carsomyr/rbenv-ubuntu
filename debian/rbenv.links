@@ -1,0 +1,2 @@
+usr/lib/rbenv/bin/rbenv usr/bin/rbenv
+usr/lib/rbenv/bin/ruby-local-exec usr/bin/ruby-local-exec

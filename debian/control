@@ -2,8 +2,8 @@ Source: rbenv
 Section: ruby
 Priority: optional
 Maintainer: Roy Liu <carsomyr@gmail.com>
-Build-Depends: debhelper, pandoc, rsync
-Standards-Version: 3.9.3
+Build-Depends: debhelper (>= 9), pandoc, rsync
+Standards-Version: 3.9.4
 Homepage: https://github.com/sstephenson/rbenv
 
 Package: rbenv
