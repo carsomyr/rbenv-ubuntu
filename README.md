@@ -156,7 +156,7 @@ easy to fork and contribute any changes back upstream.
 1. Check out rbenv into `~/.rbenv`.
 
     ~~~ sh
-    $ git clone git://github.com/sstephenson/rbenv.git ~/.rbenv
+    $ git clone https://github.com/sstephenson/rbenv.git ~/.rbenv
     ~~~
 
 2. Add `~/.rbenv/bin` to your `$PATH` for access to the `rbenv`
@@ -397,6 +397,11 @@ Lists all Ruby versions with the given command installed.
 The rbenv source code is [hosted on
 GitHub](https://github.com/sstephenson/rbenv). It's clean, modular,
 and easy to understand, even if you're not a shell hacker.
+
+Tests are executed using [Bats](https://github.com/sstephenson/bats):
+
+    $ bats test
+    $ bats test/<file>.bats
 
 Please feel free to submit pull requests and file bugs on the [issue
 tracker](https://github.com/sstephenson/rbenv/issues).

@@ -17,7 +17,11 @@ mkdir -p "$SHIM_PATH"
 set -o noclobber
 { echo > "$PROTOTYPE_SHIM_PATH"
 } 2>/dev/null ||
-{ echo "rbenv: cannot rehash: $PROTOTYPE_SHIM_PATH exists"
+{ if [ -w "$SHIM_PATH" ]; then
+    echo "rbenv: cannot rehash: $PROTOTYPE_SHIM_PATH exists"
+  else
+    echo "rbenv: cannot rehash: $SHIM_PATH isn't writable"
+  fi
   exit 1
 } >&2
 set +o noclobber
@@ -140,7 +144,11 @@ make_shims ../versions/*/bin/*
 cd "$OLDPWD"
 
 # Allow plugins to register shims.
-for script in $(rbenv-hooks rehash); do
+OLDIFS="$IFS"
+IFS=$'\n' scripts=(`rbenv-hooks rehash`)
+IFS="$OLDIFS"
+
+for script in "${scripts[@]}"; do
   source "$script"
 done
 
