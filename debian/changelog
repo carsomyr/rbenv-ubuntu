@@ -1,3 +1,9 @@
+rbenv (0.4.0+48-0ubuntu2) raring; urgency=low
+
+  * Update to 0.4.0+48.
+
+ -- Roy Liu <carsomyr@gmail.com>  Sat, 15 Jun 2013 00:00:00 -0400
+
 rbenv (0.4.0+9-0ubuntu1) precise; urgency=low
 
   * Update the rules file to use current debhelper conventions.
