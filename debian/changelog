@@ -1,5 +1,6 @@
-rbenv-jruby1.7 (1.7.4-0ubuntu3) raring; urgency=low
+rbenv-jruby1.7 (1.7.4-0ubuntu4) raring; urgency=low
 
+  * Update the copyright file.
   * Update to 1.7.4.
 
  -- Roy Liu <carsomyr@gmail.com>  Fri, 14 Jun 2013 00:00:00 -0400

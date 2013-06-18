@@ -4,7 +4,7 @@ This package was Debianized by:
 
 Copyright:
 
-    Copyright (C) 2007-2012 The JRuby project
+    Copyright (c) 2007-2013 The JRuby project
 
 License:
 
@@ -13,7 +13,7 @@ License:
 
 The Debian packaging is:
 
-    Copyright (C) 2012 Roy Liu <carsomyr@gmail.com>
+    Copyright (c) 2012 Roy Liu <carsomyr@gmail.com>
 
 and is distributed under the Apache License, Version 2.0 (see
 `/usr/share/common-licenses/Apache-2.0').
