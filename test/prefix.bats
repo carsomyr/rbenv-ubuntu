@@ -23,3 +23,8 @@ load test_helper
   RBENV_VERSION="system" run rbenv-prefix
   assert_success "$RBENV_TEST_DIR"
 }
+
+@test "prefix for invalid system" {
+  PATH="$(path_without ruby)" run rbenv-prefix system
+  assert_failure "rbenv: system version not found in PATH"
+}

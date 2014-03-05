@@ -22,7 +22,10 @@ done
 
 shell="$1"
 if [ -z "$shell" ]; then
-  shell="$(basename "$SHELL")"
+  shell="$(ps c -p "$PPID" -o 'ucomm=' 2>/dev/null || true)"
+  shell="${shell##-}"
+  shell="${shell%% *}"
+  shell="$(basename "${shell:-$SHELL}")"
 fi
 
 READLINK=$(type -p greadlink readlink | head -1)
@@ -62,6 +65,9 @@ if [ -z "$print" ]; then
   ksh )
     profile='~/.profile'
     ;;
+  fish )
+    profile='~/.config/fish/config.fish'
+    ;;
   * )
     profile='your profile'
     ;;
@@ -70,7 +76,14 @@ if [ -z "$print" ]; then
   { echo "# Load rbenv automatically by adding"
     echo "# the following to ${profile}:"
     echo
-    echo 'eval "$(rbenv init -)"'
+    case "$shell" in
+    fish )
+      echo 'status --is-interactive; and . (rbenv init -|psub)'
+      ;;
+    * )
+      echo 'eval "$(rbenv init -)"'
+      ;;
+    esac
     echo
   } >&2
 
@@ -80,24 +93,71 @@ fi
 mkdir -p "${RBENV_ROOT}/"{shims,versions}
 
 if [[ ":${PATH}:" != *:"${RBENV_ROOT}/shims":* ]]; then
-  echo 'export PATH="'${RBENV_ROOT}'/shims:${PATH}"'
+  case "$shell" in
+  fish )
+    echo "setenv PATH '${RBENV_ROOT}/shims' \$PATH"
+  ;;
+  * )
+    echo 'export PATH="'${RBENV_ROOT}'/shims:${PATH}"'
+  ;;
+  esac
 fi
 
 case "$shell" in
-bash | zsh )
-  echo "source \"$root/completions/rbenv.${shell}\""
-  ;;
+fish )
+  echo "setenv RBENV_SHELL $shell"
+;;
+* )
+  echo "export RBENV_SHELL=$shell"
+;;
 esac
+
+completion="${root}/completions/rbenv.${shell}"
+if [ -r "$completion" ]; then
+  case "$shell" in
+  fish ) echo ". '$completion'" ;;
+  *    ) echo "source '$completion'" ;;
+  esac
+fi
 
 if [ -z "$no_rehash" ]; then
   echo 'rbenv rehash 2>/dev/null'
 fi
 
 commands=(`rbenv-commands --sh`)
+case "$shell" in
+fish )
+  cat <<EOS
+function rbenv
+  set command \$argv[1]
+  set -e argv[1]
+
+  switch "\$command"
+  case ${commands[*]}
+    eval (rbenv "sh-\$command" \$argv)
+  case '*'
+    command rbenv "\$command" \$argv
+  end
+end
+EOS
+  exit 0
+  ;;
+ksh )
+  cat <<EOS
+function rbenv {
+  typeset command
+EOS
+  ;;
+* )
+  cat <<EOS
+rbenv() {
+  local command
+EOS
+  ;;
+esac
+
 IFS="|"
 cat <<EOS
-rbenv() {
-  typeset command
   command="\$1"
   if [ "\$#" -gt 0 ]; then
     shift
