@@ -1,0 +1,5 @@
+rbenv-ruby2.2 (2.2.1-0ubuntu1) trusty; urgency=low
+
+  * Initial Debianization.
+
+ -- Roy Liu <carsomyr@gmail.com>  Fri, 27 Mar 2015 00:00:00 -0400
