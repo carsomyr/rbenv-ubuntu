@@ -1,3 +1,9 @@
+rbenv (0.4.0+git.146-0ubuntu1) trusty; urgency=low
+
+  * Update to 0.4.0+git.146.
+
+ -- Roy Liu <carsomyr@gmail.com>  Fri, 27 Mar 2015 00:00:00 -0400
+
 rbenv (0.4.0+git.95-0ubuntu1) trusty; urgency=low
 
   * Update to 0.4.0+git.95.

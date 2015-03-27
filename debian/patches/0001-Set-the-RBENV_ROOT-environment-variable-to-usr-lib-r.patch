@@ -1,18 +1,18 @@
 From: Roy Liu <carsomyr@gmail.com>
-Date: Thu, 17 Jan 2013 16:40:02 -0500
-Subject: Set the RBENV_ROOT environment variable to "/usr/lib/rbenv" instead
- of "${HOME}/.rbenv"
+Date: Fri, 27 Mar 2015 15:14:35 -0400
+Subject: Set the RBENV_ROOT environment variable to `/usr/lib/rbenv` instead
+ of `${HOME}/.rbenv`
 
 ---
  libexec/rbenv | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/libexec/rbenv b/libexec/rbenv
-index 7692864..73bf65e 100755
+index de7ea69..e16c1f6 100755
 --- a/libexec/rbenv
 +++ b/libexec/rbenv
-@@ -21,7 +21,7 @@ abs_dirname() {
- }
+@@ -48,7 +48,7 @@ abs_dirname() {
+ fi
  
  if [ -z "${RBENV_ROOT}" ]; then
 -  RBENV_ROOT="${HOME}/.rbenv"
