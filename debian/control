@@ -1,0 +1,19 @@
+Source: rbenv-ruby2.4
+Section: ruby
+Priority: optional
+Maintainer: Roy Liu <carsomyr@gmail.com>
+Build-Depends: autoconf, bison, debhelper (>= 9), libffi-dev, libreadline-dev, libssl-dev, libyaml-dev, m4, rsync, ruby, zlib1g-dev
+Standards-Version: 3.9.8
+Homepage: http://www.ruby-lang.org/
+
+Package: rbenv-ruby2.4
+Architecture: amd64 armhf i386
+Depends: libffi6, libreadline6, libssl1.0.0, libyaml-0-2, rbenv, zlib1g, ${misc:Depends}, ${shlibs:Depends}
+Provides: rbenv-ruby
+Description: rbenv-based, prebuilt Ruby MRI
+ A dynamic, open source programming language with a focus on simplicity and
+ productivity. It has an elegant syntax that is natural to read and easy to
+ write.
+ .
+ This particular distribution is installed as part of the rbenv Ruby version
+ manager.

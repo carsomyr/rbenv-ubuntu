@@ -1,0 +1,7 @@
+embedded-javascript-library
+font-in-non-font-package
+hardening-no-fortify-functions
+image-file-in-usr-lib
+package-contains-empty-directory
+ruby-script-but-no-ruby-dep
+wrong-path-for-interpreter

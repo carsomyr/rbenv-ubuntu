@@ -1,0 +1,19 @@
+This package was Debianized by:
+
+    Roy Liu <carsomyr@gmail.com> on Fri, 27 Mar 2015 00:00:00 -0400
+
+Copyright:
+
+    Copyright (c) 1993-2015 Yukihiro Matsumoto
+
+License:
+
+    Ruby is distributed under the 2-clause BSD License (see
+    `https://raw.github.com/ruby/ruby/trunk/BSDL').
+
+The Debian packaging is:
+
+    Copyright (c) 2015 Roy Liu <carsomyr@gmail.com>
+
+and is distributed under the Apache License, Version 2.0 (see
+`/usr/share/common-licenses/Apache-2.0').

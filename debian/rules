@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+# export DH_VERBOSE=1
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+RBENV_VERSION=$(shell head -n 1 -- debian/changelog \
+	| sed -E -e "s/^rbenv-ruby[1-2]\\.[0-9] \\((.*)-.*\\) \\w+; urgency=low\$$/\\1/g")
+MAJOR_VERSION=$(shell echo "$(RBENV_VERSION)" \
+	| sed -E -e "s/^([1-2]\\.[0-9])\\..*\$$/\\1/g")
+PACKAGE_NAME=$(shell head -n 1 -- debian/changelog \
+	| sed -E -e "s/^(rbenv-ruby[1-2]\\.[0-9]) \\(.*\\) \\w+; urgency=low\$$/\\1/g")
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	autoconf
+
+	dh_auto_configure -- --disable-install-rdoc --prefix /usr/lib/rbenv/versions/$(MAJOR_VERSION)
+
+override_dh_auto_build-arch:
+	make -j 2
+
+	m4 -D MAJOR_VERSION=$(MAJOR_VERSION) -D RBENV_VERSION=$(RBENV_VERSION) -- debian/build/$(PACKAGE_NAME).links.m4 \
+		> debian/$(PACKAGE_NAME).links
+	m4 -D MAJOR_VERSION=$(MAJOR_VERSION) -- debian/build/$(PACKAGE_NAME).postrm.m4 \
+		> debian/$(PACKAGE_NAME).postrm
+
+override_dh_auto_clean:
+	rm -f -- debian/$(PACKAGE_NAME).links debian/$(PACKAGE_NAME).postrm
+
+	dh_auto_clean
