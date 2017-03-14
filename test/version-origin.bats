@@ -31,8 +31,26 @@ setup() {
   assert_success "${PWD}/.ruby-version"
 }
 
-@test "detects alternate version file" {
-  touch .rbenv-version
-  run rbenv-version-origin
-  assert_success "${PWD}/.rbenv-version"
+@test "reports from hook" {
+  create_hook version-origin test.bash <<<"RBENV_VERSION_ORIGIN=plugin"
+
+  RBENV_VERSION=1 run rbenv-version-origin
+  assert_success "plugin"
+}
+
+@test "carries original IFS within hooks" {
+  create_hook version-origin hello.bash <<SH
+hellos=(\$(printf "hello\\tugly world\\nagain"))
+echo HELLO="\$(printf ":%s" "\${hellos[@]}")"
+SH
+
+  export RBENV_VERSION=system
+  IFS=$' \t\n' run rbenv-version-origin env
+  assert_success
+  assert_line "HELLO=:hello:ugly:world:again"
+}
+
+@test "doesn't inherit RBENV_VERSION_ORIGIN from environment" {
+  RBENV_VERSION_ORIGIN=ignored run rbenv-version-origin
+  assert_success "${RBENV_ROOT}/version"
 }

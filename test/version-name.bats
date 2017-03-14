@@ -22,6 +22,27 @@ setup() {
   assert_success "system"
 }
 
+@test "RBENV_VERSION can be overridden by hook" {
+  create_version "1.8.7"
+  create_version "1.9.3"
+  create_hook version-name test.bash <<<"RBENV_VERSION=1.9.3"
+
+  RBENV_VERSION=1.8.7 run rbenv-version-name
+  assert_success "1.9.3"
+}
+
+@test "carries original IFS within hooks" {
+  create_hook version-name hello.bash <<SH
+hellos=(\$(printf "hello\\tugly world\\nagain"))
+echo HELLO="\$(printf ":%s" "\${hellos[@]}")"
+SH
+
+  export RBENV_VERSION=system
+  IFS=$' \t\n' run rbenv-version-name env
+  assert_success
+  assert_line "HELLO=:hello:ugly:world:again"
+}
+
 @test "RBENV_VERSION has precedence over local" {
   create_version "1.8.7"
   create_version "1.9.3"
@@ -49,7 +70,7 @@ setup() {
 
 @test "missing version" {
   RBENV_VERSION=1.2 run rbenv-version-name
-  assert_failure "rbenv: version \`1.2' is not installed"
+  assert_failure "rbenv: version \`1.2' is not installed (set by RBENV_VERSION environment variable)"
 }
 
 @test "version with prefix in name" {

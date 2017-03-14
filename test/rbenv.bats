@@ -4,8 +4,8 @@ load test_helper
 
 @test "blank invocation" {
   run rbenv
-  assert_success
-  assert [ "${lines[0]}" = "rbenv 0.4.0" ]
+  assert_failure
+  assert_line 0 "$(rbenv---version)"
 }
 
 @test "invalid command" {
@@ -70,6 +70,7 @@ load test_helper
 }
 
 @test "RBENV_HOOK_PATH includes rbenv built-in plugins" {
+  unset RBENV_HOOK_PATH
   run rbenv echo "RBENV_HOOK_PATH"
-  assert_success ":${RBENV_ROOT}/rbenv.d:${BATS_TEST_DIRNAME%/*}/rbenv.d:/usr/local/etc/rbenv.d:/etc/rbenv.d:/usr/lib/rbenv/hooks"
+  assert_success "${RBENV_ROOT}/rbenv.d:${BATS_TEST_DIRNAME%/*}/rbenv.d:/usr/local/etc/rbenv.d:/etc/rbenv.d:/usr/lib/rbenv/hooks"
 }

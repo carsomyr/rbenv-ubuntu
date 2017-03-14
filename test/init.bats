@@ -14,7 +14,7 @@ load test_helper
 @test "auto rehash" {
   run rbenv-init -
   assert_success
-  assert_line "rbenv rehash 2>/dev/null"
+  assert_line "command rbenv rehash 2>/dev/null"
 }
 
 @test "setup shell completions" {
@@ -25,23 +25,35 @@ load test_helper
 }
 
 @test "detect parent shell" {
-  root="$(cd $BATS_TEST_DIRNAME/.. && pwd)"
   SHELL=/bin/false run rbenv-init -
   assert_success
   assert_line "export RBENV_SHELL=bash"
+}
+
+@test "detect parent shell from script" {
+  mkdir -p "$RBENV_TEST_DIR"
+  cd "$RBENV_TEST_DIR"
+  cat > myscript.sh <<OUT
+#!/bin/sh
+eval "\$(rbenv-init -)"
+echo \$RBENV_SHELL
+OUT
+  chmod +x myscript.sh
+  run ./myscript.sh /bin/zsh
+  assert_success "sh"
 }
 
 @test "setup shell completions (fish)" {
   root="$(cd $BATS_TEST_DIRNAME/.. && pwd)"
   run rbenv-init - fish
   assert_success
-  assert_line ". '${root}/test/../libexec/../completions/rbenv.fish'"
+  assert_line "source '${root}/test/../libexec/../completions/rbenv.fish'"
 }
 
 @test "fish instructions" {
   run rbenv-init fish
   assert [ "$status" -eq 1 ]
-  assert_line 'status --is-interactive; and . (rbenv init -|psub)'
+  assert_line 'status --is-interactive; and source (rbenv init -|psub)'
 }
 
 @test "option to skip rehash" {
@@ -71,11 +83,11 @@ load test_helper
   assert_line 0 'export PATH="'${RBENV_ROOT}'/shims:${PATH}"'
 }
 
-@test "doesn't add shims to PATH more than once (fish)" {
+@test "can add shims to PATH more than once (fish)" {
   export PATH="${RBENV_ROOT}/shims:$PATH"
   run rbenv-init - fish
   assert_success
-  refute_line 'setenv PATH "'${RBENV_ROOT}'/shims" $PATH ;'
+  assert_line 0 "setenv PATH '${RBENV_ROOT}/shims' \$PATH"
 }
 
 @test "outputs sh-compatible syntax" {
