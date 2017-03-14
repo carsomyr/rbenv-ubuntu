@@ -8,10 +8,10 @@ Subject: Set the RBENV_ROOT environment variable to `/usr/lib/rbenv` instead
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/libexec/rbenv b/libexec/rbenv
-index de7ea69..e16c1f6 100755
+index 07847a66ae..b59148ebdb 100755
 --- a/libexec/rbenv
 +++ b/libexec/rbenv
-@@ -48,7 +48,7 @@ abs_dirname() {
+@@ -51,7 +51,7 @@ else
  fi
  
  if [ -z "${RBENV_ROOT}" ]; then

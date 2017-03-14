@@ -1,3 +1,9 @@
+rbenv (1.1.0+git.2-0ubuntu1) yakkety; urgency=low
+
+  * Update to 1.1.0+git.2.
+
+ -- Roy Liu <carsomyr@gmail.com>  Tue, 14 Mar 2017 00:00:00 -0400
+
 rbenv (0.4.0+git.146-0ubuntu1) trusty; urgency=low
 
   * Update to 0.4.0+git.146.
