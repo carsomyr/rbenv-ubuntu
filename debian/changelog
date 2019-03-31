@@ -1,0 +1,5 @@
+rbenv-ruby2.6 (2.6.0-0ubuntu1) bionic; urgency=low
+
+  * Initial Debianization.
+
+ -- Roy Liu <carsomyr@gmail.com>  Sun, 31 Mar 2019 00:00:00 -0400
