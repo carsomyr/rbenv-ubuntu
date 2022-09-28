@@ -1,0 +1,20 @@
+From: Roy Liu <roy@scalient.io>
+Date: Wed, 28 Sep 2022 02:51:54 -0400
+Subject: Update `include/revision.h`
+
+---
+ include/revision.h | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/include/revision.h b/include/revision.h
+index 9375ee4..3038298 100644
+--- a/include/revision.h
++++ b/include/revision.h
+@@ -1,4 +1,4 @@
+-#define RUBY_REVISION "44d1f9e58b"
+-#define RUBY_FULL_REVISION "44d1f9e58bc0fe186186e61e3cbadf03d4e3030c"
++#define RUBY_REVISION "9fe3829a18"
++#define RUBY_FULL_REVISION "9fe3829a183fcb08e2fa129bce9433ae4f089da3"
+ #define RUBY_BRANCH_NAME "ruby2.7"
+-#define RUBY_RELEASE_DATETIME "2020-03-19T00:00:00Z"
++#define RUBY_RELEASE_DATETIME "2022-09-28T06:41:30Z"
